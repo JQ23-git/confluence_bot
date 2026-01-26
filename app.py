@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from tvdatafeed import TvDatafeed, Interval
+# FIX: Capitalized 'D' in tvDatafeed
+from tvDatafeed import TvDatafeed, Interval 
 
 st.set_page_config(layout="wide", page_title="Confluence Pro")
 
@@ -146,4 +147,3 @@ with tab_coins:
 
 with tab_commodities:
     st.info("🚧 Commodities data coming in v2.1")
-
