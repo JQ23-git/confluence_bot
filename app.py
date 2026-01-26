@@ -1,11 +1,45 @@
 import streamlit as st
 import pandas as pd
 from tvDatafeed import TvDatafeed, Interval
-import datetime
+from datetime import datetime, date
 
 st.set_page_config(layout="wide", page_title="Confluence Pro")
 
-# --- 1. THE ENGINE (Logic) ---
+# --- 1. DATA MAPPING (Names & Tickers) ---
+# We map tickers to friendly names for the UI
+STOCK_MAP = {
+    "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
+    "AMZN": "Amazon", "META": "Meta Platforms", "BRK.B": "Berkshire Hathaway",
+    "TSLA": "Tesla", "AVGO": "Broadcom", "TSM": "TSMC", "LLY": "Eli Lilly",
+    "WMT": "Walmart", "JPM": "JPMorgan Chase", "V": "Visa", "UNH": "UnitedHealth",
+    "JNJ": "Johnson & Johnson", "MA": "Mastercard", "PG": "Procter & Gamble",
+    "HD": "Home Depot", "NFLX": "Netflix", "BABA": "Alibaba", "XOM": "Exxon Mobil",
+    "CVX": "Chevron", "TM": "Toyota", "BAC": "Bank of America", "MRK": "Merck & Co",
+    "PEP": "PepsiCo", "KO": "Coca-Cola", "ABBV": "AbbVie", "ORCL": "Oracle",
+    "ADBE": "Adobe", "CRM": "Salesforce", "CSCO": "Cisco", "AMD": "AMD",
+    "QCOM": "Qualcomm", "INTC": "Intel", "AMGN": "Amgen", "PFE": "Pfizer",
+    "ASML": "ASML", "NVO": "Novo Nordisk", "MCD": "McDonalds", "TMO": "Thermo Fisher"
+}
+
+CRYPTO_MAP = {
+    "BTCUSDT": "Bitcoin", "ETHUSDT": "Ethereum", "BNBUSDT": "Binance Coin",
+    "XRPUSDT": "XRP", "SOLUSDT": "Solana", "TRXUSDT": "TRON", "DOGEUSDT": "Dogecoin",
+    "ADAUSDT": "Cardano", "BCHUSDT": "Bitcoin Cash", "XMRUSDT": "Monero",
+    "LINKUSDT": "Chainlink", "LEOUSDT": "LEO", "HYPEUSDT": "Hyperliquid",
+    "XLMUSDT": "Stellar", "ZECUSDT": "Zcash", "CCUSDT": "Canton", "SUIUSDT": "Sui",
+    "LTCUSDT": "Litecoin", "AVAXUSDT": "Avalanche", "TONUSDT": "Toncoin",
+    "CROUSDT": "Cronos", "DOTUSDT": "Polkadot", "UNIUSDT": "Uniswap",
+    "MNTUSDT": "Mantle", "BGBUSDT": "Bitget", "TAOUSDT": "Bittensor",
+    "AAVEUSDT": "Aave", "OKBUSDT": "OKB", "PEPEUSDT": "Pepe", "NEARUSDT": "NEAR",
+    "ICPUSDT": "Internet Comp", "ETCUSDT": "Ethereum Classic", "FILUSDT": "Filecoin",
+    "QNTUSDT": "Quant", "VETUSDT": "VeChain", "CHZUSDT": "Chiliz", "XTZUSDT": "Tezos",
+    "CAKEUSDT": "PancakeSwap", "NEXOUSDT": "Nexo", "ZROUSDT": "LayerZero",
+    "OPUSDT": "Optimism", "STXUSDT": "Stacks", "DASHUSDT": "Dash",
+    "XDCUSDT": "XDC Network", "AMPUSDT": "Amp", "APEUSDT": "ApeCoin",
+    "DYDXUSDT": "dYdX", "SNXUSDT": "Synthetix", "1INCHUSDT": "1inch", "ARUSDT": "Arweave"
+}
+
+# --- 2. THE ENGINE (Logic) ---
 def calculate_smma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
@@ -35,24 +69,29 @@ def get_ae_signal(df, target_col='hl2'):
 def get_tv_instance():
     return TvDatafeed()
 
-# --- 2. THE SCANNER (24-Hour Vault) ---
-# TTL = 86400 seconds (24 Hours). It locks the data for a full day.
-@st.cache_data(ttl=86400, show_spinner="Fetching Daily Close Data...")
+# --- 3. THE SCANNER ---
+@st.cache_data(ttl=86400, show_spinner="Analyzing Market Data...")
 def scan_market(tickers, benchmark_symbol, asset_type="Stock"):
     tv = get_tv_instance()
     results = []
     
-    # 1. Get Benchmark & Date
-    # We grab the benchmark first to establish the "As Of" date
+    # Benchmark Data
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange='AMEX', interval=Interval.in_daily, n_bars=100)
     if spy_data is None:
         spy_data = tv.get_hist(symbol=benchmark_symbol, exchange='BINANCE', interval=Interval.in_daily, n_bars=100)
     
-    # Extract the date of the last candle
-    last_date = spy_data.index[-1].strftime('%b %d, %Y')
+    # Date Handling
+    last_dt = spy_data.index[-1].date()
+    today = date.today()
+    
+    # Logic: If the candle date is today, it's LIVE. If it's earlier, it's CLOSED.
+    # Note: For crypto, this will likely return 'today', meaning it's a live candle.
+    if last_dt == today:
+        date_label = f"{last_dt.strftime('%b %d, %Y')} (Live Action 🔴)"
+    else:
+        date_label = f"{last_dt.strftime('%b %d, %Y')} (Market Close 🏁)"
 
-    # UI Feedback
-    progress_bar = st.progress(0, text=f"Analyzing {asset_type} Close Data...")
+    progress_bar = st.progress(0, text=f"Scanning {asset_type}...")
     total = len(tickers)
 
     for i, ticker in enumerate(tickers):
@@ -67,66 +106,71 @@ def scan_market(tickers, benchmark_symbol, asset_type="Stock"):
             if df is not None and not df.empty:
                 trend_signal = get_ae_signal(df, 'hl2')
                 
-                # Rel Strength
+                # Rel Strength (Ratio Logic)
                 aligned_df = df['close'].to_frame(name='stock').join(spy_data['close'].to_frame(name='spy')).dropna()
                 aligned_df['ratio'] = aligned_df['stock'] / aligned_df['spy']
                 rs_signal = get_ae_signal(aligned_df, 'ratio')
                 
-                results.append({
+                # Look up Name
+                if asset_type == "Stock":
+                    name = STOCK_MAP.get(ticker, ticker)
+                    col_order = ["Company", "Ticker", "Price", "Trend (vs USD)", "Trend (vs SPY)", "Chart"]
+                else:
+                    name = CRYPTO_MAP.get(ticker, ticker)
+                    col_order = ["Name", "Ticker", "Price", "Trend (vs USD)", "Trend (vs BTC)", "Chart"]
+
+                row = {
+                    "Company": name, # Used for Stocks
+                    "Name": name,    # Used for Coins
                     "Ticker": ticker,
                     "Price": f"${df['close'].iloc[-1]:.2f}",
                     "Trend (vs USD)": trend_signal,
-                    "Rel Strength (vs Bench)": rs_signal,
-                    "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"
-                })
+                    "Chart": f"https://www.tradingview.com/chart/?symbol={ticker}"
+                }
+                
+                # Dynamic Column Naming based on Asset
+                if asset_type == "Stock":
+                    row["Trend (vs SPY)"] = rs_signal
+                else:
+                    row["Trend (vs BTC)"] = rs_signal
+                
+                results.append(row)
         except Exception:
             pass
             
         progress_bar.progress((i + 1) / total)
         
     progress_bar.empty()
-    # Returns TWO things now: The Dataframe AND the Date string
-    return pd.DataFrame(results), last_date
-
-# --- 3. DATA LISTS ---
-STOCK_LIST = [
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "BRK.B", "TSLA", 
-    "AVGO", "TSM", "LLY", "WMT", "JPM", "V", "UNH", "JNJ", "MA", 
-    "PG", "HD", "NFLX", "BABA", "XOM", "CVX", "TM", "BAC", "MRK", 
-    "PEP", "KO", "ABBV", "ORCL", "ADBE", "CRM", "CSCO", "AMD", 
-    "QCOM", "INTC", "AMGN", "PFE", "ASML", "NVO", "MCD", "TMO"
-]
-
-CRYPTO_LIST = [
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "TRXUSDT", "DOGEUSDT", 
-    "ADAUSDT", "BCHUSDT", "XMRUSDT", "LINKUSDT", "LEOUSDT", "HYPEUSDT", "XLMUSDT", 
-    "ZECUSDT", "CCUSDT", "SUIUSDT", "LTCUSDT", "AVAXUSDT", "TONUSDT", "CROUSDT", 
-    "DOTUSDT", "UNIUSDT", "MNTUSDT", "BGBUSDT", "TAOUSDT", "AAVEUSDT", "OKBUSDT", 
-    "PEPEUSDT", "NEARUSDT", "ICPUSDT", "ETCUSDT", "FILUSDT", "QNTUSDT", "VETUSDT", 
-    "CHZUSDT", "XTZUSDT", "CAKEUSDT", "NEXOUSDT", "ZROUSDT", "OPUSDT", "STXUSDT", 
-    "DASHUSDT", "XDCUSDT", "AMPUSDT", "APEUSDT", "DYDXUSDT", "SNXUSDT", "1INCHUSDT", 
-    "ARUSDT"
-]
+    
+    # Return ordered dataframe
+    df_final = pd.DataFrame(results)
+    # Filter only columns that exist (handles the different Trend column names)
+    final_cols = [c for c in col_order if c in df_final.columns]
+    return df_final[final_cols], date_label
 
 # --- 4. THE UI ---
 st.title("🎯 Confluence.bot Pro")
 
-# Sidebar
 with st.sidebar:
     st.write("### ⚙️ System Status")
     if st.button("🔄 Force New Daily Scan"):
         st.cache_data.clear()
         st.rerun()
-    st.info("System scans the daily close once every 24 hours. Data is stored in RAM.")
+    st.info("System optimizes for daily close data. Click refresh to force a live update.")
 
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
 def highlight_rows(row):
-    trend = row["Trend (vs USD)"]
-    rs = row["Rel Strength (vs Bench)"]
-    if "Bullish" in trend and "Bullish" in rs:
+    # Find the trend columns dynamically
+    trend_cols = [c for c in row.index if "Trend" in c]
+    if len(trend_cols) < 2: return [''] * len(row)
+    
+    t1 = row[trend_cols[0]] # vs USD
+    t2 = row[trend_cols[1]] # vs Bench
+    
+    if "Bullish" in t1 and "Bullish" in t2:
         return ['background-color: #1b4d3e'] * len(row)
-    elif "Bearish" in trend and "Bearish" in rs:
+    elif "Bearish" in t1 and "Bearish" in t2:
         return ['background-color: #4d1b1b'] * len(row)
     else:
         return [''] * len(row)
@@ -134,28 +178,24 @@ def highlight_rows(row):
 tab_stocks, tab_coins, tab_commodities = st.tabs(["Stocks 📈", "Coins 🪙", "Commodities 🛢️"])
 
 with tab_stocks:
-    # 1. Fetch Data (Hits Cache if available)
-    df_stocks, stock_date = scan_market(STOCK_LIST, "SPY", "Stocks")
+    df_stocks, stock_date = scan_market(list(STOCK_MAP.keys()), "SPY", "Stock")
+    st.caption(f"📅 Data Snapshot: {stock_date}")
     
-    # 2. Show Date Header
-    st.caption(f"📅 Data Snapshot: Market Close of **{stock_date}**")
-    
-    # 3. Show Table
     st.dataframe(
         df_stocks.style.apply(highlight_rows, axis=1),
-        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        column_config={"Chart": st.column_config.LinkColumn("Action")},
         hide_index=True,
         use_container_width=True,
         height=1200
     )
 
 with tab_coins:
-    df_crypto, crypto_date = scan_market(CRYPTO_LIST, "BTCUSDT", "Crypto")
-    st.caption(f"📅 Data Snapshot: Daily Close of **{crypto_date}**")
+    df_crypto, crypto_date = scan_market(list(CRYPTO_MAP.keys()), "BTCUSDT", "Crypto")
+    st.caption(f"📅 Data Snapshot: {crypto_date}")
     
     st.dataframe(
         df_crypto.style.apply(highlight_rows, axis=1),
-        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        column_config={"Chart": st.column_config.LinkColumn("Action")},
         hide_index=True,
         use_container_width=True,
         height=1200
