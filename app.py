@@ -1,12 +1,17 @@
 import streamlit as st
 import pandas as pd
 from tvDatafeed import TvDatafeed, Interval
-from datetime import datetime, date, timedelta
+from datetime import datetime, time
+import pytz
 
 st.set_page_config(layout="wide", page_title="Confluence Pro")
 
-# --- 1. DATA MAPPING ---
-# STOCKS
+# --- 1. CONFIGURATION ---
+# Define Market Close times (in Eastern Time)
+STOCK_CLOSE_HOUR = 16  # 4:00 PM ET
+CRYPTO_CLOSE_HOUR = 19 # 7:00 PM ET (Approx UTC midnight)
+
+# --- 2. DATA MAPPING ---
 STOCK_MAP = {
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
     "AMZN": "Amazon", "META": "Meta Platforms", "BRK.B": "Berkshire Hathaway",
@@ -21,7 +26,6 @@ STOCK_MAP = {
     "ASML": "ASML", "NVO": "Novo Nordisk", "MCD": "McDonalds", "TMO": "Thermo Fisher"
 }
 
-# CRYPTO (USDT Pairs)
 CRYPTO_MAP = {
     "BTCUSDT": "Bitcoin", "ETHUSDT": "Ethereum", "BNBUSDT": "Binance Coin",
     "XRPUSDT": "XRP", "SOLUSDT": "Solana", "TRXUSDT": "TRON", "DOGEUSDT": "Dogecoin",
@@ -40,8 +44,6 @@ CRYPTO_MAP = {
     "DYDXUSDT": "dYdX", "SNXUSDT": "Synthetix", "1INCHUSDT": "1inch", "ARUSDT": "Arweave"
 }
 
-# COMMODITIES (Futures Ticker Mapping)
-# We map your list to the "Continuous Futures" contracts (ending in 1!)
 COMMODITY_MAP = {
     "GC1!": "Gold", "SI1!": "Silver", "PL1!": "Platinum", "PA1!": "Palladium",
     "HG1!": "Copper", "ALI1!": "Aluminum", "NI1!": "Nickel", "ZNC1!": "Zinc",
@@ -51,7 +53,7 @@ COMMODITY_MAP = {
     "ZS1!": "Soybeans", "KC1!": "Coffee", "SB1!": "Sugar"
 }
 
-# --- 2. THE ENGINE ---
+# --- 3. THE ENGINE ---
 def calculate_smma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
@@ -65,8 +67,6 @@ def get_ae_signal(df, target_col='hl2'):
     mid = calculate_smma(src, 26)
     slow = calculate_smma(src, 34)
 
-    # Note: We take the LAST available value in the dataframe passed to us
-    # (The scanner function determines WHICH row is the last one)
     f, m, s, p = fast.iloc[-1], mid.iloc[-1], slow.iloc[-1], src.iloc[-1]
 
     is_bull = (f > m) and (m > s) and (p > f)
@@ -83,92 +83,96 @@ def get_ae_signal(df, target_col='hl2'):
 def get_tv_instance():
     return TvDatafeed()
 
-# --- 3. THE SCANNER ---
-@st.cache_data(ttl=86400, show_spinner="Analyzing Daily Closes...")
+# --- 4. THE SCANNER ---
+@st.cache_data(ttl=3600, show_spinner="Analyzing Market Data...") # Cache for 1 hour to allow checking close status
 def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     tv = get_tv_instance()
     results = []
     
-    # 1. Get Benchmark Data
-    # For Commodities/Stocks -> SPY (AMEX)
-    # For Crypto -> BTC (BINANCE)
+    # 1. Determine Market Status (Time in New York)
+    tz_ny = pytz.timezone('US/Eastern')
+    now_ny = datetime.now(tz_ny)
+    
+    # Logic: If it is before 4:00 PM ET, we consider TODAY as "Open/Incomplete"
+    # If it is after 4:00 PM ET, we consider TODAY as "Closed/Complete"
+    market_cutoff_hour = STOCK_CLOSE_HOUR
+    if asset_type == "Crypto":
+        market_cutoff_hour = CRYPTO_CLOSE_HOUR # Different rule for crypto if needed, though usually 24/7
+        
+    is_market_closed_today = now_ny.hour >= market_cutoff_hour
+
+    # Get Benchmark
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
     
-    # 2. Logic: Ensure we are looking at the PREVIOUS close, not today's open candle
-    today = date.today()
-    last_dt = spy_data.index[-1].date()
+    # --- SMART CANDLE SELECTION ---
+    # We look at the timestamp of the LAST candle from TradingView
+    last_candle_date = spy_data.index[-1].date()
+    today_date = now_ny.date()
     
-    use_index = -1 # Default: Take last row
-    
-    # If the last candle is TODAY, it means the market hasn't closed yet (or it's crypto live).
-    # You requested "Daily Close" data, so we step back one day.
-    if last_dt == today:
-        use_index = -2
-        # Update the date label to the previous day
-        display_date = spy_data.index[-2].strftime('%b %d, %Y')
+    # If the feed gives us a candle dated TODAY:
+    if last_candle_date == today_date:
+        if not is_market_closed_today:
+            # It's today, but market isn't closed -> It's a live/fake candle. DROP IT.
+            spy_subset = spy_data.iloc[:-1]
+            display_date = spy_data.index[-2].strftime('%b %d, %Y')
+            use_last_row = False
+        else:
+            # It's today, and market IS closed -> It's the fresh close. KEEP IT.
+            spy_subset = spy_data
+            display_date = spy_data.index[-1].strftime('%b %d, %Y')
+            use_last_row = True
     else:
-        display_date = last_dt.strftime('%b %d, %Y')
+        # The feed hasn't updated to today yet (or it's weekend), so the last candle is definitely closed.
+        spy_subset = spy_data
+        display_date = spy_data.index[-1].strftime('%b %d, %Y')
+        use_last_row = True
 
-    progress_bar = st.progress(0, text=f"Scanning {asset_type} Close Data...")
+    progress_bar = st.progress(0, text=f"Scanning {asset_type} ({display_date})...")
     total = len(tickers_map)
 
     for i, (ticker, name) in enumerate(tickers_map.items()):
         try:
-            # Exchange Selection Logic
-            exchange = 'NASDAQ' # Default
+            exchange = 'NASDAQ' 
             if "USDT" in ticker: exchange = 'BINANCE'
-            if "1!" in ticker: exchange = 'COMEX' # Default for metals, adjusted below
+            if "1!" in ticker: exchange = 'COMEX' 
             
-            # Specific Futures Exchanges
             if ticker in ["CL1!", "NG1!", "RB1!", "HO1!", "BZ1!", "PL1!", "PA1!"]: exchange = "NYMEX"
             if ticker in ["ZC1!", "ZW1!", "ZS1!"]: exchange = "CBOT"
             if ticker in ["KC1!", "SB1!"]: exchange = "ICEUS"
             if ticker == "HG1!": exchange = "COMEX"
             
             df = tv.get_hist(symbol=ticker, exchange=exchange, interval=Interval.in_daily, n_bars=100)
-            
-            # Fallback for Stocks
             if df is None and exchange == 'NASDAQ': 
                 df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
             
             if df is not None and not df.empty:
-                # TRUNCATE: Cut the dataframe to match the "use_index" logic
-                # If use_index is -2, we drop the last row (Live) so all calcs happen on Closed data
-                if use_index == -2:
-                    df = df.iloc[:-1] # Drop the 'Live' candle
-                    
-                    # Also need to align benchmark to same length
-                    # (Simple slice for now, assuming date alignment matches roughly)
-                    spy_subset = spy_data.iloc[:-1]
-                else:
-                    spy_subset = spy_data
+                # Apply the same "Drop Logic" to the individual stock/coin
+                if not use_last_row:
+                    df = df.iloc[:-1]
 
                 trend_signal = get_ae_signal(df, 'hl2')
                 
                 # Rel Strength
-                # Join with benchmark on Date Index
                 aligned_df = df['close'].to_frame(name='stock').join(spy_subset['close'].to_frame(name='spy')).dropna()
                 aligned_df['ratio'] = aligned_df['stock'] / aligned_df['spy']
                 rs_signal = get_ae_signal(aligned_df, 'ratio')
                 
-                # Setup Display
                 if asset_type == "Crypto":
                     bench_col = "Trend (vs BTC)"
                 else:
                     bench_col = "Trend (vs SPY)"
 
                 row = {
-                    "Company": name, # Shared column name for Name/Commodity/Company
-                    "Ticker": ticker.replace("1!", ""), # Clean ticker for display (GC1! -> GC)
+                    "Company": name, 
+                    "Ticker": ticker.replace("1!", ""),
                     "Price": f"${df['close'].iloc[-1]:.2f}",
                     "Trend (vs USD)": trend_signal,
                     bench_col: rs_signal,
-                    "Chart": f"https://www.tradingview.com/chart/?symbol={ticker}"
+                    "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"
                 }
                 results.append(row)
-        except Exception as e:
-            # print(f"Error {ticker}: {e}")
+        except Exception:
             pass
             
         progress_bar.progress((i + 1) / total)
@@ -176,7 +180,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     progress_bar.empty()
     return pd.DataFrame(results), display_date
 
-# --- 4. THE UI ---
+# --- 5. THE UI ---
 st.title("🎯 Confluence.bot Pro")
 
 with st.sidebar:
@@ -184,12 +188,11 @@ with st.sidebar:
     if st.button("🔄 Force New Daily Scan"):
         st.cache_data.clear()
         st.rerun()
-    st.info("System scans the confirmed Daily Close (Yesterday) for accuracy.")
+    st.info("System uses NY Time (ET) to determine if the daily candle is closed.")
 
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
 def highlight_rows(row):
-    # Dynamic column finding
     trend_cols = [c for c in row.index if "Trend" in c]
     if len(trend_cols) < 2: return [''] * len(row)
     t1 = row[trend_cols[0]]
@@ -210,7 +213,7 @@ with tab_stocks:
     
     st.dataframe(
         df_stocks.style.apply(highlight_rows, axis=1),
-        column_config={"Chart": st.column_config.LinkColumn("Action")},
+        column_config={"Action": st.column_config.LinkColumn("Chart")},
         hide_index=True,
         use_container_width=True,
         height=1200
@@ -222,7 +225,7 @@ with tab_coins:
     
     st.dataframe(
         df_crypto.style.apply(highlight_rows, axis=1),
-        column_config={"Chart": st.column_config.LinkColumn("Action")},
+        column_config={"Action": st.column_config.LinkColumn("Chart")},
         hide_index=True,
         use_container_width=True,
         height=1200
@@ -234,7 +237,7 @@ with tab_commodities:
     
     st.dataframe(
         df_comm.style.apply(highlight_rows, axis=1),
-        column_config={"Chart": st.column_config.LinkColumn("Action")},
+        column_config={"Action": st.column_config.LinkColumn("Chart")},
         hide_index=True,
         use_container_width=True,
         height=1200
