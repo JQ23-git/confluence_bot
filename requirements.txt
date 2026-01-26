@@ -1,4 +1,4 @@
 streamlit
 pandas
 pandas_ta_classic
-tvDatafeed @ git+https://github.com/StreamlineData/tvDatafeed.git
+tradingview-datafeed
