@@ -8,29 +8,46 @@ import os
 # --- 1. CONFIG & STYLE ---
 st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
 
-# CSS: KILL THE SIDEBAR & Polish the Header
+# PRO CSS: 
+# 1. mix-blend-mode: lighten -> Makes the logo background transparent
+# 2. align-items: center -> Aligns the logo perfectly with the button
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Hide the sidebar completely */
-    section[data-testid="stSidebar"] {
-        display: none;
-    }
-    
-    /* Adjust top padding for the new header */
+    /* Remove padding to tighten the header */
     .block-container {
-        padding-top: 1rem;
+        padding-top: 1.5rem;
         padding-bottom: 1rem;
     }
     
-    /* Style the Refresh Button to look better */
+    /* THE MAGIC FIX: This makes the logo background disappear */
+    [data-testid="stImage"] > img {
+        mix-blend-mode: lighten;
+    }
+    
+    /* Align the System Status text nicely */
+    .status-text {
+        text-align: right; 
+        color: #00FF00; 
+        font-size: 0.9rem; 
+        font-weight: 600;
+        margin-bottom: 5px;
+    }
+    
+    /* Style the Refresh Button */
     div.stButton > button {
         width: 100%;
-        border-radius: 5px;
-        height: 3em;
+        border: 1px solid #333;
+        background-color: #0e1117;
+        color: #eee;
+        transition: all 0.3s;
+    }
+    div.stButton > button:hover {
+        border-color: #22d3ee;
+        color: #22d3ee;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -188,20 +205,23 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     progress_bar.empty()
     return pd.DataFrame(results), display_date
 
-# --- 5. THE HEADER LAYOUT (NO SIDEBAR) ---
-# We use columns to create a Top Navigation Bar effect
-col_logo, col_spacer, col_controls = st.columns([2, 4, 1.5])
+# --- 5. THE HEADER LAYOUT ---
+# Better column ratios to prevent "floating" look
+col_logo, col_mid, col_status = st.columns([3, 4, 2], gap="medium")
 
 with col_logo:
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=240)
+        st.image("logo.png", width=260)
     else:
         st.title("confluence.bot")
 
-with col_controls:
-    # Controls pushed to the right
-    st.caption("🟢 **System Online**")
-    if st.button("🔄 Refresh Data"):
+with col_mid:
+    st.write("") # Empty spacer
+
+with col_status:
+    # Use HTML for better alignment of text and button
+    st.markdown('<div class="status-text">● System Online</div>', unsafe_allow_html=True)
+    if st.button("Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
