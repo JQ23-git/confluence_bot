@@ -3,28 +3,34 @@ import pandas as pd
 from tvDatafeed import TvDatafeed, Interval
 from datetime import datetime
 import pytz
-from PIL import Image
 import os
 
 # --- 1. CONFIG & STYLE ---
 st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
 
-# PRO CSS: Hides default header, tightens layout, styles the dataframe
+# CSS: KILL THE SIDEBAR & Polish the Header
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Remove huge whitespace at top */
+    /* Hide the sidebar completely */
+    section[data-testid="stSidebar"] {
+        display: none;
+    }
+    
+    /* Adjust top padding for the new header */
     .block-container {
-        padding-top: 0rem;
+        padding-top: 1rem;
         padding-bottom: 1rem;
     }
     
-    /* Make the sidebar look like a pro nav bar */
-    [data-testid="stSidebar"] {
-        border-right: 1px solid #333;
+    /* Style the Refresh Button to look better */
+    div.stButton > button {
+        width: 100%;
+        border-radius: 5px;
+        height: 3em;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -182,29 +188,26 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     progress_bar.empty()
     return pd.DataFrame(results), display_date
 
-# --- 5. THE PRO UI LAYOUT ---
+# --- 5. THE HEADER LAYOUT (NO SIDEBAR) ---
+# We use columns to create a Top Navigation Bar effect
+col_logo, col_spacer, col_controls = st.columns([2, 4, 1.5])
 
-# A. SIDEBAR (The Navigation & Logo Area)
-with st.sidebar:
-    # 1. Logo at Top Left (Standard SaaS placement)
+with col_logo:
     if os.path.exists("logo.png"):
-        # Width=220 keeps it crisp on Retina displays
-        st.image("logo.png", width=220)
+        st.image("logo.png", width=240)
     else:
-        st.write("## confluence.bot")
-        
-    st.write("---")
-    
-    # 2. Controls
-    st.caption("SYSTEM CONTROLS")
-    if st.button("🔄 Force Refresh Data"):
+        st.title("confluence.bot")
+
+with col_controls:
+    # Controls pushed to the right
+    st.caption("🟢 **System Online**")
+    if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
-        
-    st.write("")
-    st.info("🟢 **System Online**\n\nData optimized for NY Market Close.")
 
-# B. MAIN AREA (Clean & Data-First)
+st.write("") # Spacer
+
+# --- 6. MAIN DATA AREA ---
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
 def highlight_rows(row):
@@ -220,7 +223,7 @@ def highlight_rows(row):
     else:
         return [''] * len(row)
 
-# TABS (Top of Main Area)
+# TABS
 tab_stocks, tab_coins, tab_commodities = st.tabs(["Stocks 📈", "Coins 🪙", "Commodities 🛢️"])
 
 with tab_stocks:
@@ -255,4 +258,3 @@ with tab_commodities:
         use_container_width=True,
         height=1200
     )
-# Force Logo Upload
