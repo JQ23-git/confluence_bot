@@ -9,24 +9,27 @@ import os
 # --- 1. CONFIG & STYLE ---
 st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
 
+# PRO CSS: Hides default header, tightens layout, styles the dataframe
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Remove huge whitespace at top */
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 0rem;
         padding-bottom: 1rem;
     }
-    div[data-testid="stImage"] {
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
+    
+    /* Make the sidebar look like a pro nav bar */
+    [data-testid="stSidebar"] {
+        border-right: 1px solid #333;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING (FIXED COMMODITIES) ---
+# --- 2. DATA MAPPING ---
 STOCK_MAP = {
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
     "AMZN": "Amazon", "META": "Meta Platforms", "BRK.B": "Berkshire Hathaway",
@@ -59,26 +62,12 @@ CRYPTO_MAP = {
     "DYDXUSDT": "dYdX", "SNXUSDT": "Synthetix", "1INCHUSDT": "1inch", "ARUSDT": "Arweave"
 }
 
-# Switched to ETFs for reliability on Free Feed
 COMMODITY_MAP = {
-    "GLD": "Gold", 
-    "SLV": "Silver", 
-    "PPLT": "Platinum", 
-    "PALL": "Palladium",
-    "CPER": "Copper", 
-    "JJU": "Aluminum", 
-    "JJN": "Nickel", 
-    "USO": "Crude Oil WTI", 
-    "BNO": "Crude Oil Brent", 
-    "UNG": "Natural Gas", 
-    "UGA": "Gasoline RBOB", 
-    "UHN": "Heating Oil", 
-    "URA": "Uranium ETF", 
-    "ZC1!": "Corn",       # Futures still work for grains
-    "ZW1!": "Wheat", 
-    "ZS1!": "Soybeans", 
-    "JO": "Coffee", 
-    "CANE": "Sugar"
+    "GLD": "Gold", "SLV": "Silver", "PPLT": "Platinum", "PALL": "Palladium",
+    "CPER": "Copper", "JJU": "Aluminum", "JJN": "Nickel", "USO": "Crude Oil WTI", 
+    "BNO": "Crude Oil Brent", "UNG": "Natural Gas", "UGA": "Gasoline RBOB", 
+    "UHN": "Heating Oil", "URA": "Uranium ETF", "ZC1!": "Corn", "ZW1!": "Wheat", 
+    "ZS1!": "Soybeans", "JO": "Coffee", "CANE": "Sugar"
 }
 
 # --- 3. THE ENGINE ---
@@ -117,7 +106,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     tv = get_tv_instance()
     results = []
     
-    # 1. Market Status (Time in New York)
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     
@@ -127,21 +115,19 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
-    # Get Benchmark
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
     
-    # --- SMART CANDLE LOGIC ---
     last_candle_date = spy_data.index[-1].date()
     today_date = now_ny.date()
     
     if last_candle_date == today_date:
         if not is_market_closed_today:
-            spy_subset = spy_data.iloc[:-1] # Drop live candle
+            spy_subset = spy_data.iloc[:-1] 
             display_date = spy_data.index[-2].strftime('%b %d, %Y')
             use_last_row = False
         else:
-            spy_subset = spy_data # Keep fresh close
+            spy_subset = spy_data 
             display_date = spy_data.index[-1].strftime('%b %d, %Y')
             use_last_row = True
     else:
@@ -158,7 +144,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
             if "USDT" in ticker: exchange = 'BINANCE'
             if ticker in ["ZC1!", "ZW1!", "ZS1!"]: exchange = "CBOT"
             
-            # ETFs usually live on AMEX/NYSE, let auto-detect handle it or try NYSE default
             df = tv.get_hist(symbol=ticker, exchange=exchange, interval=Interval.in_daily, n_bars=100)
             if df is None: 
                 df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
@@ -171,7 +156,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 
                 trend_signal = get_ae_signal(df, 'hl2')
                 
-                # Rel Strength
                 aligned_df = df['close'].to_frame(name='stock').join(spy_subset['close'].to_frame(name='spy')).dropna()
                 aligned_df['ratio'] = aligned_df['stock'] / aligned_df['spy']
                 rs_signal = get_ae_signal(aligned_df, 'ratio')
@@ -198,22 +182,29 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     progress_bar.empty()
     return pd.DataFrame(results), display_date
 
-# --- 5. THE UI (LOGO & LAYOUT) ---
-if os.path.exists("logo.png"):
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image("logo.png", width=400)
-else:
-    st.title("confluence.bot")
+# --- 5. THE PRO UI LAYOUT ---
 
+# A. SIDEBAR (The Navigation & Logo Area)
 with st.sidebar:
-    st.write("### ⚙️ System Status")
-    st.success("🟢 System Online")
-    if st.button("🔄 Force Refresh"):
+    # 1. Logo at Top Left (Standard SaaS placement)
+    if os.path.exists("logo.png"):
+        # Width=220 keeps it crisp on Retina displays
+        st.image("logo.png", width=220)
+    else:
+        st.write("## confluence.bot")
+        
+    st.write("---")
+    
+    # 2. Controls
+    st.caption("SYSTEM CONTROLS")
+    if st.button("🔄 Force Refresh Data"):
         st.cache_data.clear()
         st.rerun()
-    st.info("System uses NY Time (ET) to ensure Daily Candles are closed.")
+        
+    st.write("")
+    st.info("🟢 **System Online**\n\nData optimized for NY Market Close.")
 
+# B. MAIN AREA (Clean & Data-First)
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
 def highlight_rows(row):
@@ -229,12 +220,12 @@ def highlight_rows(row):
     else:
         return [''] * len(row)
 
+# TABS (Top of Main Area)
 tab_stocks, tab_coins, tab_commodities = st.tabs(["Stocks 📈", "Coins 🪙", "Commodities 🛢️"])
 
 with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Confirmed Daily Close: **{stock_date}**")
-    
     st.dataframe(
         df_stocks.style.apply(highlight_rows, axis=1),
         column_config={"Action": st.column_config.LinkColumn("Chart")},
@@ -246,7 +237,6 @@ with tab_stocks:
 with tab_coins:
     df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTCUSDT", "Crypto")
     st.caption(f"📅 Confirmed Daily Close: **{crypto_date}**")
-    
     st.dataframe(
         df_crypto.style.apply(highlight_rows, axis=1),
         column_config={"Action": st.column_config.LinkColumn("Chart")},
@@ -258,7 +248,6 @@ with tab_coins:
 with tab_commodities:
     df_comm, comm_date = scan_market(COMMODITY_MAP, "SPY", "Commodity")
     st.caption(f"📅 Confirmed Daily Close: **{comm_date}**")
-    
     st.dataframe(
         df_comm.style.apply(highlight_rows, axis=1),
         column_config={"Action": st.column_config.LinkColumn("Chart")},
