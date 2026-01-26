@@ -3,3 +3,4 @@ pandas
 pandas_ta_classic
 websocket-client
 git+https://github.com/rongardF/tvdatafeed.git
+# Force Rebuild
