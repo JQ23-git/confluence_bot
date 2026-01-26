@@ -1,17 +1,32 @@
 import streamlit as st
 import pandas as pd
 from tvDatafeed import TvDatafeed, Interval
-from datetime import datetime, time
+from datetime import datetime
 import pytz
+from PIL import Image
+import os
 
-st.set_page_config(layout="wide", page_title="Confluence Pro")
+# --- 1. CONFIG & STYLE ---
+st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
 
-# --- 1. CONFIGURATION ---
-# Define Market Close times (in Eastern Time)
-STOCK_CLOSE_HOUR = 16  # 4:00 PM ET
-CRYPTO_CLOSE_HOUR = 19 # 7:00 PM ET (Approx UTC midnight)
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 1rem;
+    }
+    div[data-testid="stImage"] {
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING ---
+# --- 2. DATA MAPPING (FIXED COMMODITIES) ---
 STOCK_MAP = {
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
     "AMZN": "Amazon", "META": "Meta Platforms", "BRK.B": "Berkshire Hathaway",
@@ -44,13 +59,26 @@ CRYPTO_MAP = {
     "DYDXUSDT": "dYdX", "SNXUSDT": "Synthetix", "1INCHUSDT": "1inch", "ARUSDT": "Arweave"
 }
 
+# Switched to ETFs for reliability on Free Feed
 COMMODITY_MAP = {
-    "GC1!": "Gold", "SI1!": "Silver", "PL1!": "Platinum", "PA1!": "Palladium",
-    "HG1!": "Copper", "ALI1!": "Aluminum", "NI1!": "Nickel", "ZNC1!": "Zinc",
-    "CL1!": "Crude Oil WTI", "BZ1!": "Crude Oil Brent", "NG1!": "Natural Gas",
-    "RB1!": "Gasoline RBOB", "HO1!": "Heating Oil", "UX1!": "Uranium Index",
-    "URA": "Uranium ETF Proxy", "ZC1!": "Corn", "ZW1!": "Wheat",
-    "ZS1!": "Soybeans", "KC1!": "Coffee", "SB1!": "Sugar"
+    "GLD": "Gold", 
+    "SLV": "Silver", 
+    "PPLT": "Platinum", 
+    "PALL": "Palladium",
+    "CPER": "Copper", 
+    "JJU": "Aluminum", 
+    "JJN": "Nickel", 
+    "USO": "Crude Oil WTI", 
+    "BNO": "Crude Oil Brent", 
+    "UNG": "Natural Gas", 
+    "UGA": "Gasoline RBOB", 
+    "UHN": "Heating Oil", 
+    "URA": "Uranium ETF", 
+    "ZC1!": "Corn",       # Futures still work for grains
+    "ZW1!": "Wheat", 
+    "ZS1!": "Soybeans", 
+    "JO": "Coffee", 
+    "CANE": "Sugar"
 }
 
 # --- 3. THE ENGINE ---
@@ -84,20 +112,18 @@ def get_tv_instance():
     return TvDatafeed()
 
 # --- 4. THE SCANNER ---
-@st.cache_data(ttl=3600, show_spinner="Analyzing Market Data...") # Cache for 1 hour to allow checking close status
+@st.cache_data(ttl=3600, show_spinner="Analyzing Market Data...") 
 def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     tv = get_tv_instance()
     results = []
     
-    # 1. Determine Market Status (Time in New York)
+    # 1. Market Status (Time in New York)
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     
-    # Logic: If it is before 4:00 PM ET, we consider TODAY as "Open/Incomplete"
-    # If it is after 4:00 PM ET, we consider TODAY as "Closed/Complete"
-    market_cutoff_hour = STOCK_CLOSE_HOUR
+    market_cutoff_hour = 16
     if asset_type == "Crypto":
-        market_cutoff_hour = CRYPTO_CLOSE_HOUR # Different rule for crypto if needed, though usually 24/7
+        market_cutoff_hour = 19
         
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
@@ -105,25 +131,20 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
     
-    # --- SMART CANDLE SELECTION ---
-    # We look at the timestamp of the LAST candle from TradingView
+    # --- SMART CANDLE LOGIC ---
     last_candle_date = spy_data.index[-1].date()
     today_date = now_ny.date()
     
-    # If the feed gives us a candle dated TODAY:
     if last_candle_date == today_date:
         if not is_market_closed_today:
-            # It's today, but market isn't closed -> It's a live/fake candle. DROP IT.
-            spy_subset = spy_data.iloc[:-1]
+            spy_subset = spy_data.iloc[:-1] # Drop live candle
             display_date = spy_data.index[-2].strftime('%b %d, %Y')
             use_last_row = False
         else:
-            # It's today, and market IS closed -> It's the fresh close. KEEP IT.
-            spy_subset = spy_data
+            spy_subset = spy_data # Keep fresh close
             display_date = spy_data.index[-1].strftime('%b %d, %Y')
             use_last_row = True
     else:
-        # The feed hasn't updated to today yet (or it's weekend), so the last candle is definitely closed.
         spy_subset = spy_data
         display_date = spy_data.index[-1].strftime('%b %d, %Y')
         use_last_row = True
@@ -135,19 +156,16 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         try:
             exchange = 'NASDAQ' 
             if "USDT" in ticker: exchange = 'BINANCE'
-            if "1!" in ticker: exchange = 'COMEX' 
-            
-            if ticker in ["CL1!", "NG1!", "RB1!", "HO1!", "BZ1!", "PL1!", "PA1!"]: exchange = "NYMEX"
             if ticker in ["ZC1!", "ZW1!", "ZS1!"]: exchange = "CBOT"
-            if ticker in ["KC1!", "SB1!"]: exchange = "ICEUS"
-            if ticker == "HG1!": exchange = "COMEX"
             
+            # ETFs usually live on AMEX/NYSE, let auto-detect handle it or try NYSE default
             df = tv.get_hist(symbol=ticker, exchange=exchange, interval=Interval.in_daily, n_bars=100)
-            if df is None and exchange == 'NASDAQ': 
+            if df is None: 
                 df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
+            if df is None:
+                df = tv.get_hist(symbol=ticker, exchange='AMEX', interval=Interval.in_daily, n_bars=100)
             
             if df is not None and not df.empty:
-                # Apply the same "Drop Logic" to the individual stock/coin
                 if not use_last_row:
                     df = df.iloc[:-1]
 
@@ -180,15 +198,21 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     progress_bar.empty()
     return pd.DataFrame(results), display_date
 
-# --- 5. THE UI ---
-st.title("🎯 Confluence.bot Pro")
+# --- 5. THE UI (LOGO & LAYOUT) ---
+if os.path.exists("logo.png"):
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("logo.png", width=400)
+else:
+    st.title("confluence.bot")
 
 with st.sidebar:
     st.write("### ⚙️ System Status")
-    if st.button("🔄 Force New Daily Scan"):
+    st.success("🟢 System Online")
+    if st.button("🔄 Force Refresh"):
         st.cache_data.clear()
         st.rerun()
-    st.info("System uses NY Time (ET) to determine if the daily candle is closed.")
+    st.info("System uses NY Time (ET) to ensure Daily Candles are closed.")
 
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
