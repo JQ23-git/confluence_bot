@@ -9,45 +9,59 @@ import os
 st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
 
 # PRO CSS: 
-# 1. mix-blend-mode: lighten -> Makes the logo background transparent
-# 2. align-items: center -> Aligns the logo perfectly with the button
+# 1. THE MASK FIX: Fades the edges of the logo so the "box" disappears.
+# 2. Header Polish: clean alignment and spacing.
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Remove padding to tighten the header */
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 1rem;
     }
     
-    /* THE MAGIC FIX: This makes the logo background disappear */
-    [data-testid="stImage"] > img {
-        mix-blend-mode: lighten;
+    /* THE NUCLEAR FIX: Gradient Mask 
+       This fades the outer 10% of the image to transparent, 
+       killing the hard edges of the box. */
+    [data-testid="stImage"] img {
+        -webkit-mask-image: radial-gradient(circle, black 60%, transparent 90%);
+        mask-image: radial-gradient(circle, black 60%, transparent 90%);
+        object-fit: contain;
     }
     
-    /* Align the System Status text nicely */
+    /* Right-side status styling */
+    .status-container {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        height: 100%;
+        padding-top: 10px;
+    }
     .status-text {
-        text-align: right; 
-        color: #00FF00; 
-        font-size: 0.9rem; 
+        color: #22d3ee; 
+        font-size: 0.85rem; 
         font-weight: 600;
-        margin-bottom: 5px;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+        text-transform: uppercase;
     }
     
-    /* Style the Refresh Button */
     div.stButton > button {
-        width: 100%;
         border: 1px solid #333;
         background-color: #0e1117;
-        color: #eee;
-        transition: all 0.3s;
+        color: #aaa;
+        font-size: 0.9rem;
+        padding: 0.4rem 1rem;
+        border-radius: 6px;
+        transition: all 0.2s ease;
     }
     div.stButton > button:hover {
         border-color: #22d3ee;
         color: #22d3ee;
+        background-color: rgba(34, 211, 238, 0.05);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -206,26 +220,28 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     return pd.DataFrame(results), display_date
 
 # --- 5. THE HEADER LAYOUT ---
-# Better column ratios to prevent "floating" look
-col_logo, col_mid, col_status = st.columns([3, 4, 2], gap="medium")
+col_left, col_right = st.columns([3, 1])
 
-with col_logo:
+with col_left:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=260)
     else:
         st.title("confluence.bot")
 
-with col_mid:
-    st.write("") # Empty spacer
-
-with col_status:
-    # Use HTML for better alignment of text and button
-    st.markdown('<div class="status-text">● System Online</div>', unsafe_allow_html=True)
-    if st.button("Refresh Data"):
+with col_right:
+    st.markdown(
+        """
+        <div class="status-container">
+            <div class="status-text">● System Online</div>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    if st.button("Refresh Data", key="refresh_top"):
         st.cache_data.clear()
         st.rerun()
 
-st.write("") # Spacer
+st.write("") 
 
 # --- 6. MAIN DATA AREA ---
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
