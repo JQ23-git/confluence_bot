@@ -1,16 +1,11 @@
 import streamlit as st
 import pandas as pd
 from tvDatafeed import TvDatafeed, Interval
+import datetime
 
 st.set_page_config(layout="wide", page_title="Confluence Pro")
 
-# --- 1. SESSION STATE SETUP (The Memory Fix) ---
-if 'stock_data' not in st.session_state:
-    st.session_state.stock_data = None
-if 'crypto_data' not in st.session_state:
-    st.session_state.crypto_data = None
-
-# --- 2. THE ENGINE (Logic) ---
+# --- 1. THE ENGINE (Logic) ---
 def calculate_smma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
@@ -24,7 +19,6 @@ def get_ae_signal(df, target_col='hl2'):
     mid = calculate_smma(src, 26)
     slow = calculate_smma(src, 34)
 
-    # Get latest values
     f, m, s, p = fast.iloc[-1], mid.iloc[-1], slow.iloc[-1], src.iloc[-1]
 
     is_bull = (f > m) and (m > s) and (p > f)
@@ -41,40 +35,39 @@ def get_ae_signal(df, target_col='hl2'):
 def get_tv_instance():
     return TvDatafeed()
 
-def scan_market(tickers, benchmark_symbol="SPY"):
+# --- 2. THE SCANNER (24-Hour Vault) ---
+# TTL = 86400 seconds (24 Hours). It locks the data for a full day.
+@st.cache_data(ttl=86400, show_spinner="Fetching Daily Close Data...")
+def scan_market(tickers, benchmark_symbol, asset_type="Stock"):
     tv = get_tv_instance()
     results = []
     
-    # Progress Bar UI
-    progress_text = "Operation in progress. Please wait."
-    my_bar = st.progress(0, text=progress_text)
-    
-    # Get Benchmark Data
-    # Try AMEX first (for SPY), fallback to BINANCE (for BTCUSDT)
+    # 1. Get Benchmark & Date
+    # We grab the benchmark first to establish the "As Of" date
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange='AMEX', interval=Interval.in_daily, n_bars=100)
     if spy_data is None:
         spy_data = tv.get_hist(symbol=benchmark_symbol, exchange='BINANCE', interval=Interval.in_daily, n_bars=100)
+    
+    # Extract the date of the last candle
+    last_date = spy_data.index[-1].strftime('%b %d, %Y')
 
+    # UI Feedback
+    progress_bar = st.progress(0, text=f"Analyzing {asset_type} Close Data...")
     total = len(tickers)
+
     for i, ticker in enumerate(tickers):
         try:
-            # Smart Exchange Selection
             exchange = 'NASDAQ'
-            # If it ends in USDT, it's crypto -> use Binance
-            if ticker.endswith("USDT"): 
-                exchange = 'BINANCE'
+            if ticker.endswith("USDT"): exchange = 'BINANCE'
             
             df = tv.get_hist(symbol=ticker, exchange=exchange, interval=Interval.in_daily, n_bars=100)
-            
-            # Fallback for stocks
             if df is None and exchange == 'NASDAQ': 
                 df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
             
             if df is not None and not df.empty:
                 trend_signal = get_ae_signal(df, 'hl2')
                 
-                # Relative Strength Calculation
-                # Join with benchmark to align dates
+                # Rel Strength
                 aligned_df = df['close'].to_frame(name='stock').join(spy_data['close'].to_frame(name='spy')).dropna()
                 aligned_df['ratio'] = aligned_df['stock'] / aligned_df['spy']
                 rs_signal = get_ae_signal(aligned_df, 'ratio')
@@ -86,89 +79,87 @@ def scan_market(tickers, benchmark_symbol="SPY"):
                     "Rel Strength (vs Bench)": rs_signal,
                     "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"
                 })
-        except Exception as e:
-            # Silent fail for individual tickers to keep scan running
+        except Exception:
             pass
             
-        my_bar.progress((i + 1) / total, text=f"Scanning {ticker}...")
+        progress_bar.progress((i + 1) / total)
         
-    my_bar.empty()
-    return pd.DataFrame(results)
+    progress_bar.empty()
+    # Returns TWO things now: The Dataframe AND the Date string
+    return pd.DataFrame(results), last_date
 
-# --- 3. THE UI ---
+# --- 3. DATA LISTS ---
+STOCK_LIST = [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "BRK.B", "TSLA", 
+    "AVGO", "TSM", "LLY", "WMT", "JPM", "V", "UNH", "JNJ", "MA", 
+    "PG", "HD", "NFLX", "BABA", "XOM", "CVX", "TM", "BAC", "MRK", 
+    "PEP", "KO", "ABBV", "ORCL", "ADBE", "CRM", "CSCO", "AMD", 
+    "QCOM", "INTC", "AMGN", "PFE", "ASML", "NVO", "MCD", "TMO"
+]
+
+CRYPTO_LIST = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "TRXUSDT", "DOGEUSDT", 
+    "ADAUSDT", "BCHUSDT", "XMRUSDT", "LINKUSDT", "LEOUSDT", "HYPEUSDT", "XLMUSDT", 
+    "ZECUSDT", "CCUSDT", "SUIUSDT", "LTCUSDT", "AVAXUSDT", "TONUSDT", "CROUSDT", 
+    "DOTUSDT", "UNIUSDT", "MNTUSDT", "BGBUSDT", "TAOUSDT", "AAVEUSDT", "OKBUSDT", 
+    "PEPEUSDT", "NEARUSDT", "ICPUSDT", "ETCUSDT", "FILUSDT", "QNTUSDT", "VETUSDT", 
+    "CHZUSDT", "XTZUSDT", "CAKEUSDT", "NEXOUSDT", "ZROUSDT", "OPUSDT", "STXUSDT", 
+    "DASHUSDT", "XDCUSDT", "AMPUSDT", "APEUSDT", "DYDXUSDT", "SNXUSDT", "1INCHUSDT", 
+    "ARUSDT"
+]
+
+# --- 4. THE UI ---
 st.title("🎯 Confluence.bot Pro")
 
-# CSS for full width/height tables
-st.markdown("""
-<style>
-    .stDataFrame { width: 100%; }
-</style>
-""", unsafe_allow_html=True)
+# Sidebar
+with st.sidebar:
+    st.write("### ⚙️ System Status")
+    if st.button("🔄 Force New Daily Scan"):
+        st.cache_data.clear()
+        st.rerun()
+    st.info("System scans the daily close once every 24 hours. Data is stored in RAM.")
 
-tab_stocks, tab_coins, tab_commodities = st.tabs(["Stocks 📈", "Coins 🪙", "Commodities 🛢️"])
+st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
-# Helper for coloring rows
 def highlight_rows(row):
     trend = row["Trend (vs USD)"]
     rs = row["Rel Strength (vs Bench)"]
     if "Bullish" in trend and "Bullish" in rs:
-        return ['background-color: #1b4d3e'] * len(row) # Dark Green
+        return ['background-color: #1b4d3e'] * len(row)
     elif "Bearish" in trend and "Bearish" in rs:
-        return ['background-color: #4d1b1b'] * len(row) # Dark Red
+        return ['background-color: #4d1b1b'] * len(row)
     else:
         return [''] * len(row)
 
-# --- TAB: STOCKS ---
+tab_stocks, tab_coins, tab_commodities = st.tabs(["Stocks 📈", "Coins 🪙", "Commodities 🛢️"])
+
 with tab_stocks:
-    st.header("US Equities Radar (vs SPY)")
+    # 1. Fetch Data (Hits Cache if available)
+    df_stocks, stock_date = scan_market(STOCK_LIST, "SPY", "Stocks")
     
-    if st.button("Run Stock Scan 🚀", key="btn_stocks"):
-        stock_list = [
-            "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "BRK.B", "TSLA", 
-            "AVGO", "TSM", "LLY", "WMT", "JPM", "V", "UNH", "JNJ", "MA", 
-            "PG", "HD", "NFLX", "BABA", "XOM", "CVX", "TM", "BAC", "MRK", 
-            "PEP", "KO", "ABBV", "ORCL", "ADBE", "CRM", "CSCO", "AMD", 
-            "QCOM", "INTC", "AMGN", "PFE", "ASML", "NVO", "MCD", "TMO"
-        ]
-        st.session_state.stock_data = scan_market(stock_list, "SPY")
+    # 2. Show Date Header
+    st.caption(f"📅 Data Snapshot: Market Close of **{stock_date}**")
+    
+    # 3. Show Table
+    st.dataframe(
+        df_stocks.style.apply(highlight_rows, axis=1),
+        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        hide_index=True,
+        use_container_width=True,
+        height=1200
+    )
 
-    if st.session_state.stock_data is not None:
-        st.dataframe(
-            st.session_state.stock_data.style.apply(highlight_rows, axis=1),
-            column_config={"Action": st.column_config.LinkColumn("Chart")},
-            hide_index=True,
-            use_container_width=True,
-            height=1200
-        )
-
-# --- TAB: COINS ---
 with tab_coins:
-    st.header("Crypto Radar (vs BTC)")
+    df_crypto, crypto_date = scan_market(CRYPTO_LIST, "BTCUSDT", "Crypto")
+    st.caption(f"📅 Data Snapshot: Daily Close of **{crypto_date}**")
     
-    if st.button("Run Crypto Scan 🪙", key="btn_crypto"):
-        # The Top 50 List (Converted to USDT pairs for data feed)
-        crypto_list = [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT", "TRXUSDT", "DOGEUSDT", 
-            "ADAUSDT", "BCHUSDT", "XMRUSDT", "LINKUSDT", "LEOUSDT", "HYPEUSDT", "XLMUSDT", 
-            "ZECUSDT", "CCUSDT", "SUIUSDT", "LTCUSDT", "AVAXUSDT", "TONUSDT", "CROUSDT", 
-            "DOTUSDT", "UNIUSDT", "MNTUSDT", "BGBUSDT", "TAOUSDT", "AAVEUSDT", "OKBUSDT", 
-            "PEPEUSDT", "NEARUSDT", "ICPUSDT", "ETCUSDT", "FILUSDT", "QNTUSDT", "VETUSDT", 
-            "CHZUSDT", "XTZUSDT", "CAKEUSDT", "NEXOUSDT", "ZROUSDT", "OPUSDT", "STXUSDT", 
-            "DASHUSDT", "XDCUSDT", "AMPUSDT", "APEUSDT", "DYDXUSDT", "SNXUSDT", "1INCHUSDT", 
-            "ARUSDT"
-        ]
-        # Benchmark is BTCUSDT
-        st.session_state.crypto_data = scan_market(crypto_list, "BTCUSDT")
+    st.dataframe(
+        df_crypto.style.apply(highlight_rows, axis=1),
+        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        hide_index=True,
+        use_container_width=True,
+        height=1200
+    )
 
-    if st.session_state.crypto_data is not None:
-        st.dataframe(
-            st.session_state.crypto_data.style.apply(highlight_rows, axis=1),
-            column_config={"Action": st.column_config.LinkColumn("Chart")},
-            hide_index=True,
-            use_container_width=True,
-            height=1200
-        )
-
-# --- TAB: COMMODITIES ---
 with tab_commodities:
     st.info("🚧 Commodities data coming in v2.1")
