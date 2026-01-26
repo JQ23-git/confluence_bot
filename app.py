@@ -8,30 +8,24 @@ import os
 # --- 1. CONFIG & STYLE ---
 st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
 
-# PRO CSS: 
-# 1. THE MASK FIX: Fades the edges of the logo so the "box" disappears.
-# 2. Header Polish: clean alignment and spacing.
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* TIGHT LAYOUT */
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 1rem;
     }
     
-    /* THE NUCLEAR FIX: Gradient Mask 
-       This fades the outer 10% of the image to transparent, 
-       killing the hard edges of the box. */
-    [data-testid="stImage"] img {
-        -webkit-mask-image: radial-gradient(circle, black 60%, transparent 90%);
-        mask-image: radial-gradient(circle, black 60%, transparent 90%);
-        object-fit: contain;
+    /* DARK THEME BACKGROUND */
+    .stApp {
+        background-color: #0e1117;
     }
     
-    /* Right-side status styling */
+    /* HEADER STATUS STYLING */
     .status-container {
         display: flex;
         flex-direction: column;
@@ -49,9 +43,10 @@ st.markdown("""
         text-transform: uppercase;
     }
     
+    /* REFRESH BUTTON STYLING */
     div.stButton > button {
         border: 1px solid #333;
-        background-color: #0e1117;
+        background-color: #000;
         color: #aaa;
         font-size: 0.9rem;
         padding: 0.4rem 1rem;
@@ -223,6 +218,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 
 with col_left:
+    # Direct image load - assumes logo.png is perfect
     if os.path.exists("logo.png"):
         st.image("logo.png", width=260)
     else:
@@ -259,7 +255,6 @@ def highlight_rows(row):
     else:
         return [''] * len(row)
 
-# TABS
 tab_stocks, tab_coins, tab_commodities = st.tabs(["Stocks 📈", "Coins 🪙", "Commodities 🛢️"])
 
 with tab_stocks:
