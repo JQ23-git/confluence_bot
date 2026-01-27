@@ -82,7 +82,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING (YAHOO FORMAT - SUPER LIST) ---
+# --- 2. DATA MAPPING (YAHOO FORMAT) ---
 STOCK_MAP = {
     # --- MAGNIFICENT 7 & BIG TECH ---
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
@@ -124,19 +124,59 @@ STOCK_MAP = {
     "SANA": "Sana Biotech", "NIO": "NIO Inc"
 }
 
+# --- MERGED & DEDUPED CRYPTO LIST (200+ COINS) ---
 CRYPTO_MAP = {
-    "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "BNB-USD": "Binance Coin",
-    "XRP-USD": "XRP", "SOL-USD": "Solana", "ADA-USD": "Cardano", "DOGE-USD": "Dogecoin",
-    "TRX-USD": "TRON", "LINK-USD": "Chainlink", "DOT-USD": "Polkadot",
-    "MATIC-USD": "Polygon", "LTC-USD": "Litecoin", "SHIB-USD": "Shiba Inu",
-    "AVAX-USD": "Avalanche", "DAI-USD": "Dai", "UNI-USD": "Uniswap",
-    "ATOM-USD": "Cosmos", "XMR-USD": "Monero", "ETC-USD": "Ethereum Classic",
-    "XLM-USD": "Stellar", "BCH-USD": "Bitcoin Cash", "FIL-USD": "Filecoin",
-    "NEAR-USD": "NEAR Protocol", "QNT-USD": "Quant", "APE-USD": "ApeCoin",
-    "HBAR-USD": "Hedera", "ICP-USD": "Internet Computer", "AAVE-USD": "Aave",
-    "EOS-USD": "EOS", "EGLD-USD": "MultiversX", "SAND-USD": "The Sandbox",
-    "THETA-USD": "Theta Network", "AXS-USD": "Axie Infinity", "MANA-USD": "Decentraland",
-    "XTZ-USD": "Tezos", "CHZ-USD": "Chiliz", "ZEC-USD": "Zcash", "BSV-USD": "Bitcoin SV"
+    "2Z-USD": "DoubleZero",    "A7A5-USD": "A7A5",    "AAVE-USD": "Aave",    "AB-USD": "AB",
+    "ADA-USD": "Cardano",    "AERO-USD": "Aerodrome Finance",    "ALGO-USD": "Algorand",    "APE-USD": "ApeCoin",
+    "APT-USD": "Aptos",    "ARB-USD": "Arbitrum",    "ASTER-USD": "Aster",    "ATOM-USD": "Cosmos Hub",
+    "AVAX-USD": "Avalanche",    "AXS-USD": "Axie Infinity",    "BCH-USD": "Bitcoin Cash",    "BDX-USD": "Beldex",
+    "BFUSD-USD": "BFUSD",    "BGB-USD": "Bitget Token",    "BNB-USD": "BNB",    "BNSOL-USD": "Binance Staked SOL",
+    "BONK-USD": "Bonk",    "BSC-USD-USD": "Binance Bridged USDT",    "BSV-USD": "Bitcoin SV",    "BTC-USD": "Bitcoin",
+    "BTC.B-USD": "Avalanche Bridged BTC",    "BTT-USD": "BitTorrent",    "BUIDL-USD": "BlackRock USD Fund",    "CAKE-USD": "PancakeSwap",
+    "CBBTC-USD": "Coinbase Wrapped BTC",    "CC-USD": "Canton",    "CFX-USD": "Conflux",    "CHZ-USD": "Chiliz",
+    "CLBTC-USD": "clBTC",    "CRO-USD": "Cronos",    "CRV-USD": "Curve DAO",    "CRVUSD-USD": "crvUSD",
+    "CTM-USD": "c8ntinuum",    "CUSD-USD": "Cap USD",    "DAI-USD": "Dai",    "DASH-USD": "Dash",
+    "DCR-USD": "Decred",    "DOGE-USD": "Dogecoin",    "DOT-USD": "Polkadot",    "EETH-USD": "ether.fi Staked ETH",
+    "EGLD-USD": "MultiversX",    "ENA-USD": "Ethena",    "ENS-USD": "Ethereum Name Service",    "EOS-USD": "EOS",
+    "ETC-USD": "Ethereum Classic",    "ETH-USD": "Ethereum",    "ETHFI-USD": "Ether.fi",    "ETHX-USD": "Stader ETHx",
+    "EURC-USD": "EURC",    "EUTBL-USD": "Spiko EU T-Bills",    "EZETH-USD": "Renzo Restaked ETH",    "FARTCOIN-USD": "Fartcoin",
+    "FBTC-USD": "Function FBTC",    "FDUSD-USD": "First Digital USD",    "FET-USD": "Artificial Superintelligence",    "FIGR_HELOC-USD": "Figure Heloc",
+    "FIL-USD": "Filecoin",    "FLOKI-USD": "FLOKI",    "FLR-USD": "Flare",    "FTN-USD": "Fasttoken",
+    "GHO-USD": "GHO",    "GNO-USD": "Gnosis",    "GRT-USD": "The Graph",    "GT-USD": "Gate",
+    "GTETH-USD": "GTETH",    "H-USD": "Humanity",    "HASH-USD": "Provenance Blockchain",    "HBAR-USD": "Hedera",
+    "HTX-USD": "HTX DAO",    "HYPE-USD": "Hyperliquid",    "ICP-USD": "Internet Computer",    "INJ-USD": "Injective",
+    "IOTA-USD": "IOTA",    "IP-USD": "Story",    "JAAA-USD": "Janus Henderson AAA",    "JASMY-USD": "JasmyCoin",
+    "JITOSOL-USD": "Jito Staked SOL",    "JLP-USD": "Jupiter LP",    "JST-USD": "JUST",    "JTRSY-USD": "Janus Henderson Treasury",
+    "JUP-USD": "Jupiter",    "JUPSOL-USD": "Jupiter Staked SOL",    "KAG-USD": "Kinesis Silver",    "KAIA-USD": "Kaia",
+    "KAS-USD": "Kaspa",    "KAU-USD": "Kinesis Gold",    "KCS-USD": "KuCoin",    "KHYPE-USD": "Kinetiq Staked HYPE",
+    "LBTC-USD": "Lombard Staked BTC",    "LDO-USD": "Lido DAO",    "LEO-USD": "LEO Token",    "LINK-USD": "Chainlink",
+    "LIQUIDETH-USD": "Ether.Fi Liquid ETH",    "LIT-USD": "Lighter",    "LSETH-USD": "Liquid Staked ETH",    "LTC-USD": "Litecoin",
+    "M-USD": "MemeCore",    "MANA-USD": "Decentraland",    "MATIC-USD": "Polygon",    "METH-USD": "Mantle Staked Ether",
+    "MNT-USD": "Mantle",    "MORPHO-USD": "Morpho",    "MSOL-USD": "Marinade Staked SOL",    "MYX-USD": "MYX Finance",
+    "NEAR-USD": "NEAR Protocol",    "NEXO-USD": "NEXO",    "NFT-USD": "AINFT",    "NIGHT-USD": "Midnight",
+    "OHM-USD": "Olympus",    "OKB-USD": "OKB",    "ONDO-USD": "Ondo",    "OP-USD": "Optimism",
+    "OSETH-USD": "StakeWise Staked ETH",    "OUSG-USD": "OUSG",    "PAXG-USD": "PAX Gold",    "PENDLE-USD": "Pendle",
+    "PENGU-USD": "Pudgy Penguins",    "PEPE-USD": "Pepe",    "PI-USD": "Pi Network",    "PIPPIN-USD": "pippin",
+    "POL-USD": "POL (ex-MATIC)",    "PUMP-USD": "Pump.fun",    "PYTH-USD": "Pyth Network",    "PYUSD-USD": "PayPal USD",
+    "QNT-USD": "Quant",    "RAIN-USD": "Rain",    "RENDER-USD": "Render",    "RIVER-USD": "River",
+    "RLUSD-USD": "Ripple USD",    "RSETH-USD": "Kelp DAO Restaked ETH",    "SAND-USD": "The Sandbox",    "SBTC-USD": "sBTC",
+    "SEI-USD": "Sei",    "SHIB-USD": "Shiba Inu",    "SKY-USD": "Sky",    "SOL-USD": "Solana",
+    "SOLVBTC-USD": "Solv Protocol BTC",    "SPX-USD": "SPX6900",    "STABLE-USD": "​​Stable",    "STEAKUSDC-USD": "Steakhouse USDC",
+    "STKAAVE-USD": "Staked Aave",    "STRK-USD": "Starknet",    "STX-USD": "Stacks",    "SUI-USD": "Sui",
+    "SUN-USD": "Sun Token",    "SUSDE-USD": "Ethena Staked USDe",    "SUSDS-USD": "sUSDS",    "SYRUP-USD": "Maple Finance",
+    "SYRUPUSDC-USD": "syrupUSDC",    "SYRUPUSDT-USD": "syrupUSDT",    "TAO-USD": "Bittensor",    "TBTC-USD": "tBTC",
+    "TEL-USD": "Telcoin",    "THETA-USD": "Theta Network",    "TIA-USD": "Celestia",    "TON-USD": "Toncoin",
+    "TRUMP-USD": "Official Trump",    "TRX-USD": "TRON",    "TWT-USD": "Trust Wallet",    "UBTC-USD": "Unit Bitcoin",
+    "UDS-USD": "Undeads Games",    "UNI-USD": "Uniswap",    "USD0-USD": "Usual USD",    "USD1-USD": "USD1",
+    "USDAI-USD": "USDai",    "USDB-USD": "USDB",    "USDC.E-USD": "Polygon Bridged USDC",    "USDE-USD": "Ethena USDe",
+    "USDF-USD": "Falcon USD",    "USDG-USD": "Global Dollar",    "USDS-USD": "USDS",    "USDT0-USD": "USDT0",
+    "USDTB-USD": "USDtb",    "USDY-USD": "Ondo US Dollar Yield",    "USR-USD": "Resolv USR",    "USTB-USD": "Superstate USTB",
+    "USX-USD": "USX",    "USYC-USD": "Circle USYC",    "VET-USD": "VeChain",    "VIRTUAL-USD": "Virtuals Protocol",
+    "WAPE-USD": "Wrapped ApeCoin",    "WBETH-USD": "Wrapped Beacon ETH",    "WBNB-USD": "Wrapped BNB",    "WBT-USD": "WhiteBIT Coin",
+    "WEETH-USD": "Wrapped eETH",    "WFLR-USD": "Wrapped Flare",    "WIF-USD": "dogwifhat",    "WLD-USD": "Worldcoin",
+    "WLFI-USD": "World Liberty Fin",    "WM-USD": "WrappedM by M0",    "WSTUSR-USD": "Resolv wstUSR",    "WSTX-USD": "Wrapped STX",
+    "XAUT-USD": "Tether Gold",    "XDC-USD": "XDC Network",    "XLM-USD": "Stellar",    "XMR-USD": "Monero",
+    "XRP-USD": "XRP",    "XTZ-USD": "Tezos",    "ZEC-USD": "Zcash",    "ZRO-USD": "LayerZero"
 }
 
 COMMODITY_MAP = {
@@ -154,7 +194,6 @@ def calculate_smma(series, length):
 
 def get_ae_signal(df, target_col='hl2'):
     if target_col == 'hl2':
-        # Yahoo data uses Capitalized Column names: High, Low
         src = (df['High'] + df['Low']) / 2
     else:
         src = df[target_col]
@@ -173,7 +212,6 @@ def get_gambit_signal(df):
     alpha_fast = 3.5 / (len_val + 1)
     alpha_slow = 2.0 / (len_val + 1)
     
-    # Yahoo data uses Capitalized Column names: High, Low, Close, Open
     tl1 = df['Low'].ewm(alpha=alpha_fast, adjust=False).mean()
     tl = df['Low'].ewm(alpha=alpha_slow, adjust=False).mean()
     tl3 = tl - tl1
@@ -211,7 +249,6 @@ def fetch_single_ticker(args):
         target_df = df.copy()
         
         # If market is Open, last row is live. Drop it for confirmed daily close.
-        # Crypto is 24/7 so we keep it.
         if asset_type != "Crypto" and not is_market_closed_today:
              target_df = target_df.iloc[:-1]
 
@@ -264,16 +301,13 @@ def fetch_single_ticker(args):
             is_flip = True
             flip_text = "Gambit Buy 🔥"
 
-        # Benchmark Logic (Simplified for speed in Yahoo mode)
-        # Using Pre-fetched SPY subset passed in args
-        # Align dates.
+        # Benchmark Logic
         common_idx = target_df.index.intersection(spy_subset.index)
         if len(common_idx) > 20:
             aligned_stock = target_df.loc[common_idx]['Close']
             aligned_bench = spy_subset.loc[common_idx]['Close']
             ratio = aligned_stock / aligned_bench
             
-            # Recalc AE on Ratio
             ratio_df = pd.DataFrame({'ratio': ratio})
             r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
             rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
@@ -336,7 +370,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v2.1") 
+    else: st.title("confluence.bot v2.2") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
