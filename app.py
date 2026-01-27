@@ -160,3 +160,4 @@ with t_comm:
     df_m, d_m = scan(COMMODITY_MAP, "SPY")
     st.caption(f"📅 Daily Close: {d_m}")
     draw(df_m, "Trend (vs SPY)")
+ 
