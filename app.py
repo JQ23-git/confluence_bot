@@ -35,11 +35,11 @@ def get_crypto_map():
     if os.path.exists(csv_file):
         try:
             df = pd.read_csv(csv_file)
-            # FIX: Strip whitespace from column names to prevent KeyError
+            # Normalize headers by stripping whitespace
             df.columns = df.columns.str.strip()
             if 'Ticker' in df.columns:
                 return {str(row['Ticker']).strip(): str(row['Name']).strip() for _, row in df.iterrows()}
-        except Exception: pass
+        except: pass
     return {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum"}
 
 CRYPTO_MAP = get_crypto_map()
@@ -64,26 +64,30 @@ def get_gambit_signal(df):
 def fetch_ticker(args):
     ticker, name, spy_sub, now_cst = args
     try:
+        # Increase reliability with small delays or latest yfinance version
         df = yf.Ticker(ticker).history(period="1y")
-        if df is None or len(df) < 15: return None
-        # Align with last finalized Daily Close (5PM CST for Crypto)
+        if df is None or df.empty or len(df) < 15: return None
+        
+        # Consistent Close Logic
         if now_cst.time() < time(17, 0): df = df.iloc[:-1]
 
         bull, bear = get_ae_signal(df)
         buy, sell = get_gambit_signal(df)
-        t_stat = "Neutral ⚪"; g_stat = "—"; c_stat = "⚪ Neutral"; trigger = ""
+        
+        t_stat = "Neutral ⚪"; g_stat = "—"; c_stat = "⚪ Neutral"
         if bull.iloc[-1]: t_stat = "Bullish 🟢"
         elif bear.iloc[-1]: t_stat = "Bearish 🔴"
+        
         if buy.iloc[-1]: g_stat = "🟢 BUY (Reversal)"
         elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
+        
         if bull.iloc[-1]:
             c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
-            if buy.iloc[-1]: trigger = "Gambit Buy 🔥"
         elif bear.iloc[-1]:
             c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
         elif buy.iloc[-1]:
-            c_stat = "🔥 REVERSAL"; trigger = "Trend Flip 🟢"
-
+            c_stat = "🔥 REVERSAL"
+            
         common = df.index.intersection(spy_sub.index)
         rs_stat = "—"
         if len(common) > 5:
@@ -91,7 +95,7 @@ def fetch_ticker(args):
             r_bull, r_bear = get_ae_signal(pd.DataFrame({'ratio': ratio}))
             rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
             
-        return {"Company": name, "Ticker": ticker.replace("-USD", ""), "Trigger": trigger,
+        return {"Company": name, "Ticker": ticker.replace("-USD", ""),
                 "Price": f"${df['Close'].iloc[-1]:.2f}", "Trend (vs USD)": t_stat, 
                 "BenchTrend": rs_stat, "Gambit Reversals": g_stat, "Confluence": c_stat,
                 "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"}
@@ -102,12 +106,14 @@ def scan(t_map, bench):
     tz_cst = pytz.timezone('US/Central'); now_cst = datetime.now(tz_cst)
     spy = yf.Ticker(bench).history(period="1y")
     spy_sub = spy.iloc[:-1] if now_cst.time() < time(17, 0) else spy
+    
     tasks = [(t, n, spy_sub, now_cst) for t, n in t_map.items()]
-    with ThreadPoolExecutor(max_workers=30) as exe:
+    with ThreadPoolExecutor(max_workers=20) as exe:
         results = [r for r in list(exe.map(fetch_ticker, tasks)) if r]
+        
     df = pd.DataFrame(results)
     if not df.empty:
-        # Normalize headers for standard access
+        # Standardize column headers again for safety
         df.columns = df.columns.str.strip()
         cats = ["🚀 STRONG BUY", "🔥 REVERSAL", "📈 Trending Up", "⚪ Neutral", "📉 Trending Down", "⬇️ STRONG SELL"]
         df['Confluence'] = pd.Categorical(df['Confluence'], categories=cats, ordered=True)
@@ -125,7 +131,7 @@ with col2:
 t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
 def draw(df, b_name):
-    if df is None or df.empty: st.warning("Loading data..."); return
+    if df is None or df.empty: st.warning("Market data unavailable."); return
     buy_c, sell_c, rev_c = "#06402B", "#4a0f0f", "#5c4d00"
     def highlight(row):
         val = str(row.get('Confluence', ''))
@@ -139,15 +145,15 @@ def draw(df, b_name):
 
 with t_stocks:
     df_s, d_s = scan(STOCK_MAP, "SPY")
-    st.caption(f"📅 Daily Close: {d_s}")
+    st.caption(f"📅 Confirmed Close: {d_s}")
     sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     with sub[0]: draw(df_s, "Trend (vs SPY)")
     for i, cat in enumerate(STOCK_GROUPS.keys()):
         with sub[i+1]:
-            # SAFETY GUARD: Check for 'Ticker' column presence before filtering
+            # SAFETY GUARD: Always check if 'Ticker' column is present
             if df_s is not None and not df_s.empty and 'Ticker' in df_s.columns:
                 draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])], "Trend (vs SPY)")
-            else: st.info("Initializing market data...")
+            else: st.info("Loading market data...")
 
 with t_coins:
     df_c, d_c = scan(CRYPTO_MAP, "BTC-USD")
