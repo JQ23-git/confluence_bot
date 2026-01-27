@@ -184,7 +184,7 @@ def fetch_single_ticker(args):
         target_df = df.copy()
         
         # If market is Open, last row is live. Drop it for confirmed daily close.
-        # Crypto is 24/7 so we keep it or handle consistently.
+        # Crypto is 24/7 so we keep it.
         if asset_type != "Crypto" and not is_market_closed_today:
              target_df = target_df.iloc[:-1]
 
@@ -238,19 +238,12 @@ def fetch_single_ticker(args):
             flip_text = "Gambit Buy 🔥"
 
         # Benchmark Logic (Simplified for speed in Yahoo mode)
-        # We assume SPY/BTC alignment by date index intersection
-        # This keeps it fast without re-fetching benchmark 500 times
-        
-        # Quick Benchmark Trend (using Pre-fetched SPY subset passed in args)
-        # We need to align dates.
         common_idx = target_df.index.intersection(spy_subset.index)
         if len(common_idx) > 20:
             aligned_stock = target_df.loc[common_idx]['Close']
             aligned_bench = spy_subset.loc[common_idx]['Close']
             ratio = aligned_stock / aligned_bench
             
-            # Recalc AE on Ratio
-            # We need a dataframe structure for get_ae_signal which expects 'high'/'low' or target col
             ratio_df = pd.DataFrame({'ratio': ratio})
             r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
             rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
@@ -292,10 +285,8 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     bench_ticker = yf.Ticker(benchmark_symbol)
     bench_hist = bench_ticker.history(period="1y")
     
-    # Date Display
     display_date = bench_hist.index[-1].strftime('%b %d, %Y')
     
-    # Prepare benchmark subset for Ratio calcs
     spy_subset = bench_hist.copy()
     if asset_type != "Crypto" and not is_market_closed_today:
         spy_subset = spy_subset.iloc[:-1]
@@ -315,7 +306,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot")
+    else: st.title("confluence.bot v2.0 (Turbo)") # <--- VERSION STAMP
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
