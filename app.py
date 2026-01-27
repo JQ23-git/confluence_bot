@@ -317,7 +317,8 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         tasks.append((ticker, name, asset_type, spy_subset, is_market_closed_today, use_last_row, tv))
     
     results = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    # --- TURBO MODE ENABLED (8 Workers) ---
+    with ThreadPoolExecutor(max_workers=8) as executor:
         processed = list(executor.map(fetch_single_ticker, tasks))
     results = [p for p in processed if p is not None]
 
