@@ -7,58 +7,70 @@ import os
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
-# --- 1. CONFIG & STYLE ---
+# --- 1. CONFIG & THEME TOGGLE ---
 st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="favicon.ico")
 
-st.markdown("""
-<style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-    }
-    
-    .stApp {
-        background-color: #0e1117;
-    }
-    
-    /* --- TAB STYLING --- */
-    button[data-baseweb="tab"] div p {
-        font-size: 18px !important;    
-        font-weight: 700 !important;   
-    }
+# Use a checkbox at the top for the toggle
+use_light_mode = st.checkbox("☀️ Light Mode")
 
-    /* --- TABLE HEIGHT FIX --- */
-    /* This forces the dataframe to take up more vertical space */
-    .stDataFrame {
-        height: auto !important;
-        min-height: 800px !important;
-    }
+# Theme Variables
+if use_light_mode:
+    bg_color = "#ffffff"
+    text_color = "#000000"
+    card_bg = "#f0f2f6"
+    border_color = "#ddd"
+    accent = "#22d3ee"
+    # Lighter highlights for light mode
+    buy_color = "rgba(6, 64, 43, 0.2)"
+    sell_color = "rgba(74, 15, 15, 0.2)"
+    rev_color = "rgba(92, 77, 0, 0.2)"
+    trend_up = "rgba(27, 77, 62, 0.15)"
+    trend_down = "rgba(77, 27, 27, 0.15)"
+else:
+    bg_color = "#0e1117"
+    text_color = "#ffffff"
+    card_bg = "#1a1c24"
+    border_color = "#333"
+    accent = "#22d3ee"
+    # Deep jewel tones for dark mode
+    buy_color = "#06402B"
+    sell_color = "#4a0f0f"
+    rev_color = "#5c4d00"
+    trend_up = "#1b4d3e"
+    trend_down = "#4d1b1b"
+
+st.markdown(f"""
+<style>
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    header {{visibility: hidden;}}
     
-    .status-container {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        justify-content: center;
-        height: 100%;
-        padding-top: 15px; 
-    }
-    .status-text {
-        color: #22d3ee; 
+    .block-container {{ padding-top: 1rem; padding-bottom: 1rem; }}
+    
+    .stApp {{
+        background-color: {bg_color};
+        color: {text_color};
+    }}
+    
+    button[data-baseweb="tab"] div p {{ 
+        font-size: 18px !important; 
+        font-weight: 700 !important;
+        color: {text_color} !important;
+    }}
+
+    .status-text {{ 
+        color: {accent}; 
         font-size: 0.85rem; 
-        font-weight: 600;
-        text-transform: uppercase;
-    }
+        font-weight: 600; 
+        text-transform: uppercase; 
+    }}
     
-    div.stButton > button {
-        border: 1px solid #333;
-        background-color: #000;
-        color: #aaa;
-        border-radius: 6px;
-    }
+    div.stButton > button {{ 
+        border: 1px solid {border_color}; 
+        background-color: {bg_color}; 
+        color: {text_color}; 
+        border-radius: 6px; 
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -111,12 +123,18 @@ def fetch_ticker(args):
         t_stat = "Neutral ⚪"
         if bull.iloc[-1]: t_stat = "Bullish 🟢"
         elif bear.iloc[-1]: t_stat = "Bearish 🔴"
+
+        g_stat = "—"
+        if buy.iloc[-1]: g_stat = "🟢 BUY (Reversal)"
+        elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
         
         c_stat = "⚪ Neutral"
         if bull.iloc[-1]:
             c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
         elif bear.iloc[-1]:
             c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
+        elif buy.iloc[-1]:
+            c_stat = "🔥 REVERSAL"
 
         common = df.index.intersection(spy_sub.index)
         rs_stat = "—"
@@ -126,8 +144,8 @@ def fetch_ticker(args):
             rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
 
         return {"Company": name, "Ticker": ticker.replace("-USD", ""), "Price": f"${df['Close'].iloc[-1]:.2f}",
-                "Trend (vs USD)": t_stat, "Trend (vs SPY/BTC)": rs_stat, "Confluence": c_stat,
-                "Action": f"https://www.tradingview.com/chart/?symbol={ticker}", "is_flip": buy.iloc[-1] or sell.iloc[-1]}
+                "Trend (vs USD)": t_stat, "Trend (vs SPY/BTC)": rs_stat, "Gambit Reversals": g_stat, "Confluence": c_stat,
+                "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"}
     except: return None
 
 @st.cache_data(ttl=3600)
@@ -144,7 +162,7 @@ def scan(t_map, bench, a_type):
     
     df = pd.DataFrame(results)
     if not df.empty:
-        cats = ["🚀 STRONG BUY", "📈 Trending Up", "⚪ Neutral", "📉 Trending Down", "⬇️ STRONG SELL"]
+        cats = ["🚀 STRONG BUY", "🔥 REVERSAL", "📈 Trending Up", "⚪ Neutral", "📈 Pullback", "📉 Trending Down", "⬇️ STRONG SELL"]
         df['Confluence'] = pd.Categorical(df['Confluence'], categories=cats, ordered=True)
         df = df.sort_values('Confluence')
     return df, spy_sub.index[-1].strftime('%b %d, %Y')
@@ -153,16 +171,26 @@ def scan(t_map, bench, a_type):
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v3.5")
+    else: st.title("confluence.bot v4.0")
 with col2: 
     st.markdown('<div class="status-container"><div class="status-text">● Turbo Online</div></div>', unsafe_allow_html=True)
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
 
 t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
+def highlight_rows(row):
+    val = str(row.get('Confluence', ''))
+    if "STRONG BUY" in val: return [f'background-color: {buy_color}'] * len(row)
+    if "STRONG SELL" in val: return [f'background-color: {sell_color}'] * len(row)
+    if "REVERSAL" in val: return [f'background-color: {rev_color}'] * len(row)
+    if "Trending Up" in val: return [f'background-color: {trend_up}'] * len(row)
+    if "Trending Down" in val: return [f'background-color: {trend_down}'] * len(row)
+    return [''] * len(row)
+
 def draw(df):
-    # Fixed height 1200 ensures it is very long and accounts for all stocks
-    st.dataframe(df, column_config={"Action": st.column_config.LinkColumn("Chart")}, hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df.style.apply(highlight_rows, axis=1), 
+                 column_config={"Action": st.column_config.LinkColumn("Chart")}, 
+                 hide_index=True, use_container_width=True, height=1200)
 
 with t_stocks:
     df_s, d_s = scan(STOCK_MAP, "SPY", "Stock")
@@ -170,10 +198,7 @@ with t_stocks:
     sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     with sub[0]: draw(df_s)
     for i, cat in enumerate(STOCK_GROUPS.keys()):
-        with sub[i+1]:
-            # Filter subset
-            subset = df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])]
-            draw(subset)
+        with sub[i+1]: draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])])
 
 with t_coins:
     df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
