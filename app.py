@@ -25,27 +25,12 @@ st.markdown("""
         background-color: #0e1117;
     }
     
-    [data-testid="stImage"] {
-        pointer-events: none;
-    }
-    
-    /* --- TABS STYLING --- */
+    /* --- TAB STYLING --- */
     button[data-baseweb="tab"] div p {
-        font-size: 20px !important;    
-        font-weight: 800 !important;   
-        text-transform: uppercase !important; 
-        letter-spacing: 1px !important;
+        font-size: 18px !important;    
+        font-weight: 700 !important;   
+        letter-spacing: 0.5px !important;
     }
-    
-    button[data-baseweb="tab"] {
-        padding-top: 10px !important;
-        padding-bottom: 10px !important;
-        margin-right: 20px !important;
-    }
-
-    /* SPECIFIC COLORS FOR TABS */
-    button[data-baseweb="tab"]:nth-of-type(2) div p { color: #F7931A !important; }
-    button[data-baseweb="tab"]:nth-of-type(4) div p { color: #FFD700 !important; }
     
     /* STATUS & REFRESH */
     .status-container {
@@ -60,8 +45,6 @@ st.markdown("""
         color: #22d3ee; 
         font-size: 0.85rem; 
         font-weight: 600;
-        letter-spacing: 0.5px;
-        margin-bottom: 8px;
         text-transform: uppercase;
     }
     
@@ -82,49 +65,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING (YAHOO FORMAT) ---
-STOCK_MAP = {
-    # --- MAGNIFICENT 7 & BIG TECH ---
-    "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
-    "AMZN": "Amazon", "META": "Meta Platforms", "TSLA": "Tesla", "AVGO": "Broadcom",
-    
-    # --- CYBERSECURITY & CLOUD ---
-    "PANW": "Palo Alto Networks", "CRWD": "CrowdStrike", "FTNT": "Fortinet",
-    "ZS": "Zscaler", "CHKP": "Check Point", "OKTA": "Okta",
-    "IBM": "IBM", "ORCL": "Oracle", "ADBE": "Adobe", "CRM": "Salesforce",
-    "CSCO": "Cisco", "AMD": "AMD", "QCOM": "Qualcomm", "INTC": "Intel",
-    "MU": "Micron Tech", "ASML": "ASML", "TSM": "TSMC",
-    
-    # --- DEFENSE & AEROSPACE ---
-    "RTX": "RTX Corp", "BA": "Boeing", "LMT": "Lockheed Martin",
-    "NOC": "Northrop Grumman", "LHX": "L3Harris",
-    
-    # --- SPACE & SATELLITE ---
-    "RKLB": "Rocket Lab", "ASTS": "AST SpaceMobile", "PL": "Planet Labs",
-    "IRDM": "Iridium Comm", "RDW": "Redwire", "SPIR": "Spire Global",
-    "SPCE": "Virgin Galactic",
-    
-    # --- ENERGY & CLEAN TECH ---
-    "GEV": "GE Vernova", "NEE": "NextEra Energy", "FSLR": "First Solar",
-    "BEP": "Brookfield Renewable", "RUN": "Sunrun", "CWEN": "Clearway Energy",
-    "FLNC": "Fluence Energy", "XOM": "Exxon Mobil", "CVX": "Chevron",
-    
-    # --- BLUE CHIPS & PHARMA ---
-    "BRK-B": "Berkshire Hathaway", "LLY": "Eli Lilly", "WMT": "Walmart",
-    "JPM": "JPMorgan Chase", "V": "Visa", "MA": "Mastercard",
-    "UNH": "UnitedHealth", "JNJ": "Johnson & Johnson", "PG": "Procter & Gamble",
-    "HD": "Home Depot", "NFLX": "Netflix", "BABA": "Alibaba",
-    "TM": "Toyota", "BAC": "Bank of America", "MRK": "Merck & Co",
-    "PEP": "PepsiCo", "KO": "Coca-Cola", "ABBV": "AbbVie",
-    "AMGN": "Amgen", "PFE": "Pfizer", "NVO": "Novo Nordisk",
-    "MCD": "McDonalds", "TMO": "Thermo Fisher", "T": "AT&T",
-    
-    # --- SPECULATIVE / OTHERS ---
-    "SNDK": "SanDisk", "DNA": "Ginkgo Bioworks", 
-    "SANA": "Sana Biotech", "NIO": "NIO Inc"
+# --- 2. DATA MAPPING ---
+# We define groups here to help the sub-tab logic later
+STOCK_GROUPS = {
+    "Tech & AI": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "AMD", "QCOM", "INTC", "MU", "ASML", "TSM", "SNDK"],
+    "Cyber & Cloud": ["PANW", "CRWD", "FTNT", "ZS", "CHKP", "OKTA", "IBM", "ORCL", "ADBE", "CRM", "CSCO"],
+    "Defense & Space": ["RTX", "BA", "LMT", "NOC", "LHX", "RKLB", "ASTS", "PL", "IRDM", "RDW", "SPIR", "SPCE"],
+    "Energy": ["GEV", "NEE", "FSLR", "BEP", "RUN", "CWEN", "FLNC", "XOM", "CVX"],
+    "Bio & Blue Chips": ["LLY", "UNH", "JNJ", "MRK", "ABBV", "AMGN", "PFE", "NVO", "TMO", "DNA", "SANA", "BRK-B", "WMT", "JPM", "V", "MA", "PG", "HD", "NFLX", "BABA", "TM", "BAC", "PEP", "KO", "MCD", "T", "NIO"]
 }
 
-# --- CRYPTO LIST (200+) ---
+# Flatten for the scanner
+STOCK_MAP = {}
+for category, tickers in STOCK_GROUPS.items():
+    for t in tickers:
+        STOCK_MAP[t] = t # We will look up names if needed, or just use Ticker
+
 CRYPTO_MAP = {
     "2Z-USD": "DoubleZero",    "A7A5-USD": "A7A5",    "AAVE-USD": "Aave",    "AB-USD": "AB",
     "ADA-USD": "Cardano",    "AERO-USD": "Aerodrome Finance",    "ALGO-USD": "Algorand",    "APE-USD": "ApeCoin",
@@ -258,7 +214,6 @@ def fetch_single_ticker(args):
         gambit_buy = rev_up_series.iloc[-1]
         gambit_sell = rev_down_series.iloc[-1]
         
-        # --- CLEAN TEXT (NO NUMBERS) ---
         trend_status = "Neutral ⚪"
         if today_bull: trend_status = "Bullish 🟢"
         elif today_bear: trend_status = "Bearish 🔴"
@@ -267,7 +222,6 @@ def fetch_single_ticker(args):
         if gambit_buy: gambit_status = "🟢 BUY (Reversal)"
         elif gambit_sell: gambit_status = "🔴 SELL (Pivot)"
         
-        # --- CLEAN CONFLUENCE TEXT ---
         confluence_text = "⚪ Neutral"
         
         if today_bull:
@@ -309,8 +263,6 @@ def fetch_single_ticker(args):
             
             ratio_df = pd.DataFrame({'ratio': ratio})
             r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
-            
-            # --- CLEAN BENCHMARK TEXT ---
             rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
         else:
             rs_status = "—"
@@ -321,7 +273,7 @@ def fetch_single_ticker(args):
             tv_link_ticker = "BINANCE:" + ticker.replace("-USD", "USDT")
         else:
             tv_link_ticker = clean_ticker
-            
+
         return {
             "Company": name, 
             "Ticker": clean_ticker,
@@ -363,23 +315,18 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         processed = list(executor.map(fetch_single_ticker, tasks))
     results = [p for p in processed if p is not None]
 
-    # --- CATEGORICAL SORTING LOGIC APPLIED TO ALL 3 COLUMNS ---
+    # --- CATEGORICAL SORTING LOGIC ---
     df = pd.DataFrame(results)
     
     if not df.empty:
-        # 1. Define Categories for Trend (Used for USD and Benchmark)
-        trend_cats = ["Bullish 🟢", "Neutral ⚪", "Bearish 🔴", "—"] # — added for missing data
-        
-        # Apply to Trend (vs USD)
+        trend_cats = ["Bullish 🟢", "Neutral ⚪", "Bearish 🔴", "—"]
         if 'Trend (vs USD)' in df.columns:
              df['Trend (vs USD)'] = pd.Categorical(df['Trend (vs USD)'], categories=trend_cats, ordered=True)
         
-        # Apply to Benchmark Trend
         bench_col = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
         if bench_col in df.columns:
              df[bench_col] = pd.Categorical(df[bench_col], categories=trend_cats, ordered=True)
              
-        # 2. Define Categories for Confluence (Best to Worst)
         confluence_cats = [
             "🚀 STRONG BUY",
             "📈 Trending Up",
@@ -389,7 +336,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
             "📉 Trending Down",
             "⬇️ STRONG SELL"
         ]
-        # Apply to Confluence
         if 'Confluence' in df.columns:
             df['Confluence'] = pd.Categorical(df['Confluence'], categories=confluence_cats, ordered=True)
 
@@ -398,7 +344,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v2.4") 
+    else: st.title("confluence.bot v3.0 (Tabs)") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
@@ -432,10 +378,26 @@ def get_col_config(asset_type):
         "Confluence": st.column_config.TextColumn("Confluence", help="The Final Verdict:\n🚀 STRONG BUY: Bull Trend + Gambit Buy\n⬇️ STRONG SELL: Bear Trend + Gambit Sell\n⚠️ PULLBACK: Bull Trend + Gambit Sell\n🔥 REVERSAL: Bear Trend + Gambit Buy")
     }
 
+# --- STOCKS TAB WITH SUB-TABS (NESTED) ---
 with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Data Date: **{stock_date}**")
-    st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
+    
+    # Define Sub-Tabs
+    subtabs = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
+    
+    # 1. ALL Tab
+    with subtabs[0]:
+        st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
+    
+    # 2. Category Tabs
+    for i, category in enumerate(STOCK_GROUPS.keys()):
+        with subtabs[i+1]:
+            # Filter DataFrame by tickers in this group
+            target_tickers = [t.replace("=F", "").replace("-USD", "") for t in STOCK_GROUPS[category]]
+            # Filter: Check if 'Ticker' is in our target list
+            subset_df = df_stocks[df_stocks['Ticker'].isin(target_tickers)]
+            st.dataframe(subset_df.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
 
 with tab_coins:
     df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTC-USD", "Crypto")
