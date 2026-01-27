@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, time
+from datetime import datetime
 import pytz
 import os
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 # --- 1. CONFIG ---
-st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="favicon.ico")
+st.set_page_config(layout="wide", page_title="confluence.bot")
 
 st.markdown("""
 <style>
@@ -22,7 +22,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING ---
+# --- 2. DATA MAPPING (STABLE LISTS) ---
 STOCK_GROUPS = {
     "Tech & AI": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "AMD", "QCOM", "INTC", "MU", "ASML", "TSM"],
     "Cyber & Cloud": ["PANW", "CRWD", "FTNT", "ZS", "CHKP", "OKTA", "IBM", "ORCL", "ADBE", "CRM", "CSCO"],
@@ -32,20 +32,14 @@ STOCK_GROUPS = {
 }
 STOCK_MAP = {t: t for cat in STOCK_GROUPS.values() for t in cat}
 
-def get_crypto_map():
-    c_map = {}
-    try:
-        if os.path.exists('top200_non_stable_non_wrapped.csv'):
-            df_csv = pd.read_csv('top200_non_stable_non_wrapped.csv')
-            for _, row in df_csv.iterrows():
-                t = str(row['Ticker']).strip()
-                n = str(row['Name']).strip()
-                yf_t = t if "-USD" in t else f"{t}-USD"
-                c_map[yf_t] = n
-    except: pass
-    return c_map if len(c_map) > 5 else {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
+CRYPTO_MAP = {
+    "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "BNB-USD": "BNB", "XRP-USD": "XRP", "SOL-USD": "Solana",
+    "ADA-USD": "Cardano", "DOGE-USD": "Dogecoin", "TRX-USD": "TRON", "LINK-USD": "Chainlink", "AVAX-USD": "Avalanche",
+    "SHIB-USD": "Shiba Inu", "DOT-USD": "Polkadot", "LTC-USD": "Litecoin", "UNI-USD": "Uniswap", "PEPE-USD": "Pepe",
+    "NEAR-USD": "NEAR", "APT-USD": "Aptos", "SUI-USD": "Sui", "HBAR-USD": "Hedera", "STX-USD": "Stacks",
+    "RENDER-USD": "Render", "FET-USD": "FET", "FIL-USD": "Filecoin", "AAVE-USD": "Aave", "OP-USD": "Optimism"
+}
 
-CRYPTO_MAP = get_crypto_map()
 COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas"}
 
 # --- 3. INDICATORS ---
@@ -69,7 +63,7 @@ def fetch_ticker(args):
     try:
         df = yf.Ticker(ticker).history(period="1y")
         if df is None or len(df) < 10: return None
-        df = df.iloc[:-1] # Always show previous confirmed day for stability
+        df = df.iloc[:-1] # Confirmed Day Only
 
         bull, bear = get_ae_signal(df)
         buy, sell = get_gambit_signal(df)
@@ -113,14 +107,14 @@ def scan(t_map, bench, a_type):
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v4.6")
+    else: st.title("confluence.bot v4.7")
 with col2:
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
 
 t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
 def draw(df, b_name):
-    if df.empty: st.warning("Waiting for data..."); return
+    if df is None or df.empty: st.warning("No data found."); return
     buy_c, sell_c, rev_c, t_up, t_down = "#06402B", "#4a0f0f", "#5c4d00", "#1b4d3e", "#4d1b1b"
     def highlight(row):
         val = str(row.get('Confluence', ''))
@@ -144,7 +138,7 @@ with t_stocks:
 
 with t_coins:
     df_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
-    st.caption(f"📅 Confirmed Close: Jan 26, 2025 | Coins Loaded: {len(df_c)}")
+    st.caption(f"📅 Confirmed Close: Jan 26, 2025")
     draw(df_c, "Trend (vs BTC)")
 
 with t_comm:
