@@ -44,13 +44,13 @@ st.markdown("""
     }
 
     /* SPECIFIC COLORS FOR TABS */
-    /* Tab 1 (New Flips): Bright Yellow/Gold */
-    button[data-baseweb="tab"]:nth-of-type(1) div p {
-        color: #FFD700 !important;
-    }
-    /* Tab 3 (Coins): Bitcoin Orange */
-    button[data-baseweb="tab"]:nth-of-type(3) div p {
+    /* Tab 2 (Coins): Bitcoin Orange */
+    button[data-baseweb="tab"]:nth-of-type(2) div p {
         color: #F7931A !important;
+    }
+    /* Tab 4 (New Flips - moved to end): Bright Yellow/Gold */
+    button[data-baseweb="tab"]:nth-of-type(4) div p {
+        color: #FFD700 !important;
     }
     
     /* STATUS & REFRESH */
@@ -134,7 +134,7 @@ COMMODITY_MAP = {
 def calculate_smma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
-# --- TREND STRATEGY (The Original) ---
+# --- TREND STRATEGY (AE) ---
 def get_ae_signal(df, target_col='hl2'):
     if target_col == 'hl2':
         src = (df['high'] + df['low']) / 2
@@ -149,52 +149,43 @@ def get_ae_signal(df, target_col='hl2'):
 
     is_bull = (f > m) & (m > s) & (p > f)
     is_bear = (f < m) & (m < s) & (p < f)
-
-    # We return the whole series for comparison
+    
     return is_bull, is_bear
 
-# --- GAMBIT STRATEGY (The Reversal) ---
+# --- GAMBIT STRATEGY (Reversal) ---
 def get_gambit_signal(df):
-    # This matches the Pine Script math exactly
-    # 1. Calculate Custom Weighted Moving Averages
     len_val = 16
     alpha_fast = 3.5 / (len_val + 1)
     alpha_slow = 2.0 / (len_val + 1)
     
-    # Low Line (Trend Support)
+    # Low Line
     tl1 = df['low'].ewm(alpha=alpha_fast, adjust=False).mean()
     tl = df['low'].ewm(alpha=alpha_slow, adjust=False).mean()
     tl3 = tl - tl1
     tl4 = tl3.rolling(8).rank(pct=True)
     tl5 = (tl3 < 0) & (tl4 > 0.75)
-    # l is the dynamic support line
     l = np.where(tl5, tl, tl1)
     l_series = pd.Series(l, index=df.index)
 
-    # High Line (Trend Resistance)
+    # High Line
     th1 = df['high'].ewm(alpha=alpha_fast, adjust=False).mean()
     th = df['high'].ewm(alpha=alpha_slow, adjust=False).mean()
     th3 = th1 - th
     th4 = th3.rolling(8).rank(pct=True)
     th5 = (th3 > 0) & (th4 < 0.25)
-    # h is the dynamic resistance line
     h = np.where(th5, th, th1)
     h_series = pd.Series(h, index=df.index)
 
-    # 2. Logic for "Unconfirmed Reversal Up" (Blue/Yellow Candle)
-    # close[1] < i1 (prev L) AND close > l AND close < h AND close > open
+    # Unconfirmed Reversal
     prev_close = df['close'].shift(1)
     prev_l = l_series.shift(1)
-    
     is_ucru = (prev_close < prev_l) & (df['close'] > l_series) & (df['close'] < h_series) & (df['close'] > df['open'])
     
-    # 3. Logic for "Confirmed Reversal" (The BUY Signal)
-    # Yesterday was UCRU and Today Close > Yesterday High
+    # Confirmed Reversal (Buy)
     rev_up = is_ucru.shift(1) & (df['close'] > df['high'].shift(1))
     
-    # 4. Logic for "Bearish Pivot" (The SELL Signal)
-    # close[2] > o2 ... a bit complex, simplifying to main rejection
-    # close < h AND close < close[1] AND close[2] was high
+    # Bearish Pivot (Sell)
+    # Simplify for stability: Rejection from High line
     is_ur = (df['close'] < h_series) & (df['close'] < prev_close) & (df['close'].shift(2) > h_series.shift(2))
     
     return rev_up, is_ur
@@ -211,66 +202,48 @@ def fetch_single_ticker(args):
         if "USDT" in ticker: exchange = 'BINANCE'
         if ticker in ["ZC1!", "ZW1!", "ZS1!"]: exchange = "CBOT"
         
-        # Fetch Data
         df = tv.get_hist(symbol=ticker, exchange=exchange, interval=Interval.in_daily, n_bars=100)
-        if df is None: 
-            df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
-        if df is None:
-            df = tv.get_hist(symbol=ticker, exchange='AMEX', interval=Interval.in_daily, n_bars=100)
+        if df is None: df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
+        if df is None: df = tv.get_hist(symbol=ticker, exchange='AMEX', interval=Interval.in_daily, n_bars=100)
         
-        if df is None or df.empty:
-            return None
+        if df is None or df.empty: return None
 
-        # --- DATA PREP ---
-        # If market is LIVE, we usually ignore the ticking candle for the "Confirmed" signal
-        # BUT for "New Flips", we might want to know what is happening RIGHT NOW.
-        # Let's stick to the user's "Confirmed Daily Close" logic for consistency.
-        
         target_df = df.copy()
         if not use_last_row:
-            target_df = target_df.iloc[:-1] # Drop the incomplete baby candle
+            target_df = target_df.iloc[:-1]
 
         if len(target_df) < 50: return None
 
-        # --- CALCULATE SIGNALS ---
-        # 1. Trend (AE)
+        # --- SIGNALS ---
         bull_series, bear_series = get_ae_signal(target_df, 'hl2')
-        
-        # 2. Reversal (Gambit)
         rev_up_series, rev_down_series = get_gambit_signal(target_df)
         
-        # Grab Last 2 Days (Today vs Yesterday)
+        # Last Candle Values
         today_bull = bull_series.iloc[-1]
         today_bear = bear_series.iloc[-1]
-        yest_bull = bull_series.iloc[-2]
-        yest_bear = bear_series.iloc[-2]
-        
         gambit_buy = rev_up_series.iloc[-1]
         gambit_sell = rev_down_series.iloc[-1]
         
-        # --- CONFLUENCE LOGIC ---
-        # Score: 0 (Neutral), 1 (Trend), 2 (Trend + Gambit)
+        # --- COL 1: TREND STATUS ---
+        trend_status = "2. Neutral ⚪"
+        if today_bull: trend_status = "1. Bullish 🟢"
+        elif today_bear: trend_status = "3. Bearish 🔴"
         
-        status_text = "2. Neutral ⚪"
+        # --- COL 2: GAMBIT STATUS ---
+        gambit_status = "⚪"
+        if gambit_buy: gambit_status = "🟢 BUY (Reversal)"
+        elif gambit_sell: gambit_status = "🔴 SELL (Pivot)"
+        
+        # --- CONFLUENCE CHECK (For row coloring) ---
         confluence_score = 0
+        if today_bull and gambit_buy: confluence_score = 2
+        elif today_bear and gambit_sell: confluence_score = -2
+        elif not today_bull and gambit_buy: confluence_score = 1 # Reversal against trend
         
-        if today_bull:
-            status_text = "1. Bullish 🟢"
-            if gambit_buy:
-                status_text = "🔥 SUPER LONG (Trend+Rev)"
-                confluence_score = 2
-        elif today_bear:
-            status_text = "3. Bearish 🔴"
-            if gambit_sell:
-                status_text = "⬇️ SUPER SHORT"
-                confluence_score = -2
+        # --- FLIP DETECTION ---
+        yest_bull = bull_series.iloc[-2]
+        yest_bear = bear_series.iloc[-2]
         
-        # Handle Gambit Reversals against Trend
-        if not today_bull and gambit_buy:
-            status_text = "⚠️ Reversal Buy (Gambit)"
-        
-        # --- NEW FLIP DETECTION ---
-        # Did the Trend status change from Yesterday to Today?
         is_flip = False
         flip_text = ""
         
@@ -283,8 +256,8 @@ def fetch_single_ticker(args):
         elif gambit_buy:
             is_flip = True
             flip_text = "Gambit Buy 🔥"
-            
-        # Benchmark Comp
+
+        # Benchmark
         aligned_df = target_df['close'].to_frame(name='stock').join(spy_subset['close'].to_frame(name='spy')).dropna()
         aligned_df['ratio'] = aligned_df['stock'] / aligned_df['spy']
         rs_bull, rs_bear = get_ae_signal(aligned_df, 'ratio')
@@ -296,26 +269,25 @@ def fetch_single_ticker(args):
             "Company": name, 
             "Ticker": ticker.replace("1!", ""),
             "Price": f"${target_df['close'].iloc[-1]:.2f}",
-            "Confluence": status_text,
+            "Trend (Dir)": trend_status,
+            "Gambit (Rev)": gambit_status,
             bench_col: rs_status,
             "Action": f"https://www.tradingview.com/chart/?symbol={ticker}",
             "is_flip": is_flip,
-            "flip_type": flip_text
+            "flip_type": flip_text,
+            "score": confluence_score
         }
-    except Exception as e:
+    except Exception:
         return None
 
 @st.cache_data(ttl=3600, show_spinner="Analyzing Market Data...") 
 def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     tv = get_tv_instance()
-    
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     
     market_cutoff_hour = 16
-    if asset_type == "Crypto":
-        market_cutoff_hour = 19
-        
+    if asset_type == "Crypto": market_cutoff_hour = 19
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
@@ -324,18 +296,13 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     last_candle_date = spy_data.index[-1].date()
     today_date_ny = now_ny.date()
     
-    # Define Date & Subset
+    # Logic to drop live candle
     spy_subset = spy_data
     use_last_row = True
     display_date = spy_data.index[-1].strftime('%b %d, %Y')
     
-    # Logic to drop baby candle if market is live
     if asset_type == "Crypto":
-        if is_market_closed_today:
-             spy_subset = spy_data.iloc[:-1]
-             display_date = spy_data.index[-2].strftime('%b %d, %Y')
-             use_last_row = False
-        else:
+        if not is_market_closed_today:
              spy_subset = spy_data.iloc[:-1]
              display_date = spy_data.index[-2].strftime('%b %d, %Y')
              use_last_row = False
@@ -345,80 +312,64 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
              display_date = spy_data.index[-2].strftime('%b %d, %Y')
              use_last_row = False
 
-    # --- PARALLEL EXECUTION ---
-    # Create args list
     tasks = []
     for ticker, name in tickers_map.items():
         tasks.append((ticker, name, asset_type, spy_subset, is_market_closed_today, use_last_row, tv))
     
     results = []
-    # Max Workers = 4 is safe for TvDatafeed. 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        # Map returns results in order
         processed = list(executor.map(fetch_single_ticker, tasks))
-    
-    # Filter out None results
     results = [p for p in processed if p is not None]
 
     return pd.DataFrame(results), display_date
 
 # --- 5. THE HEADER LAYOUT ---
 col_left, col_right = st.columns([3, 1])
-
 with col_left:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=350)
-    else:
-        st.title("confluence.bot")
-
+    if os.path.exists("logo.png"): st.image("logo.png", width=350)
+    else: st.title("confluence.bot")
 with col_right:
-    st.markdown(
-        """
-        <div class="status-container">
-            <div class="status-text">● System Online</div>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    st.markdown("""<div class="status-container"><div class="status-text">● System Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
         st.cache_data.clear()
         st.rerun()
 
 st.write("") 
 
-# --- 6. MAIN DATA AREA ---
+# --- 6. DISPLAY LOGIC ---
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
-def highlight_confluence(row):
-    # Highlight entire row based on Confluence
-    val = row['Confluence']
-    if "SUPER LONG" in val:
-        return ['background-color: #06402B'] * len(row) # Dark Green
-    elif "Bullish" in val:
-        return ['background-color: #1b4d3e'] * len(row) # Regular Green
-    elif "SUPER SHORT" in val:
-        return ['background-color: #4a0f0f'] * len(row) # Dark Red
-    elif "Bearish" in val:
-        return ['background-color: #4d1b1b'] * len(row) # Regular Red
-    elif "Reversal Buy" in val:
-        return ['background-color: #5c4d00'] * len(row) # Gold/Yellowish
-    else:
-        return [''] * len(row)
+def highlight_rows(row):
+    # Highlight logic based on our split columns
+    s = row.get('score', 0)
+    if s == 2: return ['background-color: #06402B'] * len(row) # Strong Buy (Trend+Rev)
+    elif s == -2: return ['background-color: #4a0f0f'] * len(row) # Strong Sell
+    elif s == 1: return ['background-color: #5c4d00'] * len(row) # Reversal Warning
+    
+    # Default Trend Colors if no confluence
+    trend = row.get('Trend (Dir)', '')
+    if "Bullish" in trend: return ['background-color: #1b4d3e'] * len(row)
+    elif "Bearish" in trend: return ['background-color: #4d1b1b'] * len(row)
+    
+    return [''] * len(row)
 
-# NEW TABS STRUCTURE
-tab_flips, tab_stocks, tab_coins, tab_commodities = st.tabs(["⚡ NEW FLIPS", "STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
+# TABS: FLIPS IS NOW LAST
+tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "⚡ NEW FLIPS"])
 
-# 1. SCAN ALL MARKETS FIRST (To populate Flips)
-# We lazily load them when the user clicks, but for Flips we kind of need them all.
-# Ideally, we run scanning for all 3, then filter.
-# To keep startup fast, we will scan stocks first (default).
+# Define hidden columns for main views
+hidden_cols = {
+    "is_flip": None, 
+    "flip_type": None, 
+    "score": None,
+    "Action": st.column_config.LinkColumn("Chart")
+}
 
 with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Data Date: **{stock_date}**")
     st.dataframe(
-        df_stocks.style.apply(highlight_confluence, axis=1),
-        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        df_stocks.style.apply(highlight_rows, axis=1),
+        column_config=hidden_cols,
         hide_index=True,
         use_container_width=True,
         height=1200
@@ -426,9 +377,10 @@ with tab_stocks:
 
 with tab_coins:
     df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTCUSDT", "Crypto")
+    st.caption(f"📅 Data Date: **{crypto_date}**")
     st.dataframe(
-        df_crypto.style.apply(highlight_confluence, axis=1),
-        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        df_crypto.style.apply(highlight_rows, axis=1),
+        column_config=hidden_cols,
         hide_index=True,
         use_container_width=True,
         height=1200
@@ -436,47 +388,39 @@ with tab_coins:
 
 with tab_commodities:
     df_comm, comm_date = scan_market(COMMODITY_MAP, "SPY", "Commodity")
+    st.caption(f"📅 Data Date: **{comm_date}**")
     st.dataframe(
-        df_comm.style.apply(highlight_confluence, axis=1),
-        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        df_comm.style.apply(highlight_rows, axis=1),
+        column_config=hidden_cols,
         hide_index=True,
         use_container_width=True,
         height=1200
     )
 
 with tab_flips:
-    st.caption("⚡ Showing assets that FLIPPED trend or triggered a Gambit Signal TODAY.")
-    
-    # Combine all results (if they are loaded)
-    # Since Streamlit runs top-down, df_stocks etc are available if they ran.
-    # Note: If user hasn't clicked other tabs, they might not be loaded if we didn't force them.
-    # But scanning is cached. 
+    st.caption("⚡ Assets that triggered a Signal or Flip TODAY")
     
     all_flips = []
-    
     if 'df_stocks' in locals() and not df_stocks.empty:
-        flips_stocks = df_stocks[df_stocks['is_flip'] == True].copy()
-        if not flips_stocks.empty: all_flips.append(flips_stocks)
-        
+        all_flips.append(df_stocks[df_stocks['is_flip'] == True].copy())
     if 'df_crypto' in locals() and not df_crypto.empty:
-        flips_crypto = df_crypto[df_crypto['is_flip'] == True].copy()
-        if not flips_crypto.empty: all_flips.append(flips_crypto)
-        
+        all_flips.append(df_crypto[df_crypto['is_flip'] == True].copy())
     if 'df_comm' in locals() and not df_comm.empty:
-        flips_comm = df_comm[df_comm['is_flip'] == True].copy()
-        if not flips_comm.empty: all_flips.append(flips_comm)
+        all_flips.append(df_comm[df_comm['is_flip'] == True].copy())
     
     if all_flips:
         df_flips = pd.concat(all_flips, ignore_index=True)
-        # Reorder columns to put "Flip Type" first
-        cols = ['Company', 'Ticker', 'flip_type', 'Confluence', 'Price', 'Action']
-        df_flips = df_flips[cols]
+        # For Flips tab, we show the "flip_type" but still hide the boolean "is_flip"
+        cols = ['Company', 'Ticker', 'flip_type', 'Trend (Dir)', 'Gambit (Rev)', 'Price', 'Action', 'score']
+        # Filter columns if they exist
+        cols = [c for c in cols if c in df_flips.columns]
         
         st.dataframe(
-            df_flips.style.apply(highlight_confluence, axis=1),
+            df_flips[cols].style.apply(highlight_rows, axis=1),
             column_config={
                 "Action": st.column_config.LinkColumn("Chart"),
-                "flip_type": st.column_config.TextColumn("Trigger Event")
+                "flip_type": st.column_config.TextColumn("Trigger Event"),
+                "score": None # Hide score
             },
             hide_index=True,
             use_container_width=True
