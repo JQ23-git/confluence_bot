@@ -129,6 +129,7 @@ def calculate_smma(series, length):
 
 def get_ae_signal(df, target_col='hl2'):
     if target_col == 'hl2':
+        # Yahoo data uses Capitalized Column names: High, Low
         src = (df['High'] + df['Low']) / 2
     else:
         src = df[target_col]
@@ -147,6 +148,7 @@ def get_gambit_signal(df):
     alpha_fast = 3.5 / (len_val + 1)
     alpha_slow = 2.0 / (len_val + 1)
     
+    # Yahoo data uses Capitalized Column names: High, Low, Close, Open
     tl1 = df['Low'].ewm(alpha=alpha_fast, adjust=False).mean()
     tl = df['Low'].ewm(alpha=alpha_slow, adjust=False).mean()
     tl3 = tl - tl1
@@ -238,12 +240,15 @@ def fetch_single_ticker(args):
             flip_text = "Gambit Buy 🔥"
 
         # Benchmark Logic (Simplified for speed in Yahoo mode)
+        # Using Pre-fetched SPY subset passed in args
+        # Align dates.
         common_idx = target_df.index.intersection(spy_subset.index)
         if len(common_idx) > 20:
             aligned_stock = target_df.loc[common_idx]['Close']
             aligned_bench = spy_subset.loc[common_idx]['Close']
             ratio = aligned_stock / aligned_bench
             
+            # Recalc AE on Ratio
             ratio_df = pd.DataFrame({'ratio': ratio})
             r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
             rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
@@ -306,7 +311,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v2.0 (Turbo)") # <--- VERSION STAMP
+    else: st.title("confluence.bot v2.0 (Turbo)") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
