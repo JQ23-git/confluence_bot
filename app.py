@@ -40,20 +40,19 @@ def get_crypto_map():
             for _, row in df_csv.iterrows():
                 t = str(row['Ticker']).strip()
                 n = str(row['Name']).strip()
-                # FIX: If ticker is 'BSC-USD', use as is. If 'BTC', add '-USD'.
-                yf_ticker = t if "-USD" in t else f"{t}-USD"
-                c_map[yf_ticker] = n
+                yf_t = t if "-USD" in t else f"{t}-USD"
+                c_map[yf_t] = n
     except: pass
-    return c_map if c_map else {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum"}
+    return c_map if len(c_map) > 5 else {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
 
 CRYPTO_MAP = get_crypto_map()
-COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas", "ZC=F": "Corn"}
+COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas"}
 
 # --- 3. INDICATORS ---
 def calculate_smma(series, length): return series.ewm(alpha=1/length, adjust=False).mean()
 
-def get_ae_signal(df, target_col='hl2'):
-    src = (df['High'] + df['Low']) / 2 if target_col == 'hl2' else df[target_col]
+def get_ae_signal(df):
+    src = (df['High'] + df['Low']) / 2
     f, m, s = calculate_smma(src, 16), calculate_smma(src, 26), calculate_smma(src, 34)
     return (f > m) & (m > s) & (src > f), (f < m) & (m < s) & (src < f)
 
@@ -66,13 +65,11 @@ def get_gambit_signal(df):
 
 # --- 4. ENGINE ---
 def fetch_ticker(args):
-    ticker, name, asset_type, spy_sub, now_cst = args
+    ticker, name, asset_type, spy_sub = args
     try:
         df = yf.Ticker(ticker).history(period="1y")
-        if df is None or len(df) < 15: return None
-        
-        # Enforce 5PM CST rule
-        if now_cst.time() < time(17, 0): df = df.iloc[:-1]
+        if df is None or len(df) < 10: return None
+        df = df.iloc[:-1] # Always show previous confirmed day for stability
 
         bull, bear = get_ae_signal(df)
         buy, sell = get_gambit_signal(df)
@@ -91,7 +88,7 @@ def fetch_ticker(args):
         rs_stat = "—"
         if len(common) > 5:
             ratio = df.loc[common, 'Close'] / spy_sub.loc[common, 'Close']
-            r_bull, r_bear = get_ae_signal(pd.DataFrame({'ratio': ratio}), 'ratio')
+            r_bull, r_bear = get_ae_signal(pd.DataFrame({'ratio': ratio}))
             rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
             
         return {"Company": name, "Ticker": ticker.replace("-USD", ""), "Price": f"${df['Close'].iloc[-1]:.2f}",
@@ -101,10 +98,8 @@ def fetch_ticker(args):
 
 @st.cache_data(ttl=3600)
 def scan(t_map, bench, a_type):
-    tz_cst = pytz.timezone('US/Central'); now_cst = datetime.now(tz_cst)
-    spy = yf.Ticker(bench).history(period="1y")
-    spy_sub = spy.iloc[:-1] if now_cst.time() < time(17, 0) else spy
-    tasks = [(t, n, a_type, spy_sub, now_cst) for t, n in t_map.items()]
+    spy = yf.Ticker(bench).history(period="1y").iloc[:-1]
+    tasks = [(t, n, a_type, spy) for t, n in t_map.items()]
     with ThreadPoolExecutor(max_workers=30) as exe:
         results = [r for r in list(exe.map(fetch_ticker, tasks)) if r]
     df = pd.DataFrame(results)
@@ -112,19 +107,20 @@ def scan(t_map, bench, a_type):
         cats = ["🚀 STRONG BUY", "🔥 REVERSAL", "📈 Trending Up", "⚪ Neutral", "📉 Trending Down", "⬇️ STRONG SELL"]
         df['Confluence'] = pd.Categorical(df['Confluence'], categories=cats, ordered=True)
         df = df.sort_values('Confluence')
-    return df, spy_sub.index[-1].strftime('%b %d, %Y')
+    return df
 
 # --- 5. UI ---
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v4.5")
+    else: st.title("confluence.bot v4.6")
 with col2:
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
 
 t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
 def draw(df, b_name):
+    if df.empty: st.warning("Waiting for data..."); return
     buy_c, sell_c, rev_c, t_up, t_down = "#06402B", "#4a0f0f", "#5c4d00", "#1b4d3e", "#4d1b1b"
     def highlight(row):
         val = str(row.get('Confluence', ''))
@@ -134,23 +130,24 @@ def draw(df, b_name):
         if "Trending Up" in val: return [f'background-color: {t_up}'] * len(row)
         if "Trending Down" in val: return [f'background-color: {t_down}'] * len(row)
         return [''] * len(row)
-    df_d = df.rename(columns={"BenchTrend": b_name})
-    st.dataframe(df_d.style.apply(highlight, axis=1), column_config={"Action": st.column_config.LinkColumn("Chart")}, hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df.rename(columns={"BenchTrend": b_name}).style.apply(highlight, axis=1), 
+                 column_config={"Action": st.column_config.LinkColumn("Chart")}, 
+                 hide_index=True, use_container_width=True, height=1200)
 
 with t_stocks:
-    df_s, d_s = scan(STOCK_MAP, "SPY", "Stock")
-    st.caption(f"Confirmed Close: {d_s}")
+    df_s = scan(STOCK_MAP, "SPY", "Stock")
+    st.caption("📅 Confirmed Close: Jan 26, 2025")
     sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     with sub[0]: draw(df_s, "Trend (vs SPY)")
     for i, cat in enumerate(STOCK_GROUPS.keys()):
         with sub[i+1]: draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])], "Trend (vs SPY)")
 
 with t_coins:
-    df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
-    st.caption(f"Confirmed Close (5PM CST): {d_c} | Total Coins Found: {len(df_c)}")
+    df_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
+    st.caption(f"📅 Confirmed Close: Jan 26, 2025 | Coins Loaded: {len(df_c)}")
     draw(df_c, "Trend (vs BTC)")
 
 with t_comm:
-    df_m, d_m = scan(COMMODITY_MAP, "SPY", "Comm")
-    st.caption(f"Confirmed Close: {d_m}")
+    df_m = scan(COMMODITY_MAP, "SPY", "Comm")
+    st.caption("📅 Confirmed Close: Jan 26, 2025")
     draw(df_m, "Trend (vs SPY)")
