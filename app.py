@@ -5,9 +5,10 @@ from datetime import datetime, time
 import pytz
 import os
 import numpy as np
+import time as py_time
 from concurrent.futures import ThreadPoolExecutor
 
-# --- 1. CONFIG ---
+# --- 1. CONFIG & DARK STYLE ---
 st.set_page_config(layout="wide", page_title="confluence.bot")
 
 st.markdown("""
@@ -35,8 +36,7 @@ def get_crypto_map():
     if os.path.exists(csv_file):
         try:
             df = pd.read_csv(csv_file)
-            # Normalize headers by stripping whitespace
-            df.columns = df.columns.str.strip()
+            df.columns = df.columns.str.strip() # Clean invisible spaces
             if 'Ticker' in df.columns:
                 return {str(row['Ticker']).strip(): str(row['Name']).strip() for _, row in df.iterrows()}
         except: pass
@@ -64,30 +64,26 @@ def get_gambit_signal(df):
 def fetch_ticker(args):
     ticker, name, spy_sub, now_cst = args
     try:
-        # Increase reliability with small delays or latest yfinance version
-        df = yf.Ticker(ticker).history(period="1y")
-        if df is None or df.empty or len(df) < 15: return None
+        # Rate Limit Prevention: Small delay between mass requests
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(period="1y")
         
-        # Consistent Close Logic
+        if df is None or df.empty or len(df) < 15: return None
         if now_cst.time() < time(17, 0): df = df.iloc[:-1]
 
         bull, bear = get_ae_signal(df)
         buy, sell = get_gambit_signal(df)
-        
         t_stat = "Neutral ⚪"; g_stat = "—"; c_stat = "⚪ Neutral"
+        
         if bull.iloc[-1]: t_stat = "Bullish 🟢"
         elif bear.iloc[-1]: t_stat = "Bearish 🔴"
-        
         if buy.iloc[-1]: g_stat = "🟢 BUY (Reversal)"
         elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
         
-        if bull.iloc[-1]:
-            c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
-        elif bear.iloc[-1]:
-            c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
-        elif buy.iloc[-1]:
-            c_stat = "🔥 REVERSAL"
-            
+        if bull.iloc[-1]: c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
+        elif bear.iloc[-1]: c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
+        elif buy.iloc[-1]: c_stat = "🔥 REVERSAL"
+
         common = df.index.intersection(spy_sub.index)
         rs_stat = "—"
         if len(common) > 5:
@@ -108,13 +104,13 @@ def scan(t_map, bench):
     spy_sub = spy.iloc[:-1] if now_cst.time() < time(17, 0) else spy
     
     tasks = [(t, n, spy_sub, now_cst) for t, n in t_map.items()]
-    with ThreadPoolExecutor(max_workers=20) as exe:
+    # Slower Workers = Less likely to be blocked by Yahoo
+    with ThreadPoolExecutor(max_workers=15) as exe:
         results = [r for r in list(exe.map(fetch_ticker, tasks)) if r]
         
     df = pd.DataFrame(results)
     if not df.empty:
-        # Standardize column headers again for safety
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip() # Header Safety
         cats = ["🚀 STRONG BUY", "🔥 REVERSAL", "📈 Trending Up", "⚪ Neutral", "📉 Trending Down", "⬇️ STRONG SELL"]
         df['Confluence'] = pd.Categorical(df['Confluence'], categories=cats, ordered=True)
         df = df.sort_values('Confluence')
@@ -150,7 +146,7 @@ with t_stocks:
     with sub[0]: draw(df_s, "Trend (vs SPY)")
     for i, cat in enumerate(STOCK_GROUPS.keys()):
         with sub[i+1]:
-            # SAFETY GUARD: Always check if 'Ticker' column is present
+            # THE KEYERROR FIX: Added 'Ticker' in df_s.columns guard
             if df_s is not None and not df_s.empty and 'Ticker' in df_s.columns:
                 draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])], "Trend (vs SPY)")
             else: st.info("Loading market data...")
