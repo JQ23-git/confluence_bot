@@ -100,7 +100,13 @@ STOCK_MAP = {
     "PEP": "PepsiCo", "KO": "Coca-Cola", "ABBV": "AbbVie", "ORCL": "Oracle",
     "ADBE": "Adobe", "CRM": "Salesforce", "CSCO": "Cisco", "AMD": "AMD",
     "QCOM": "Qualcomm", "INTC": "Intel", "AMGN": "Amgen", "PFE": "Pfizer",
-    "ASML": "ASML", "NVO": "Novo Nordisk", "MCD": "McDonalds", "TMO": "Thermo Fisher"
+    "ASML": "ASML", "NVO": "Novo Nordisk", "MCD": "McDonalds", "TMO": "Thermo Fisher",
+    # --- NEW ADDITIONS ---
+    "MU": "Micron Tech", 
+    "SNDK": "SanDisk", 
+    "DNA": "Ginkgo Bioworks", 
+    "SANA": "Sana Biotech", 
+    "NIO": "NIO Inc"
 }
 
 CRYPTO_MAP = {
