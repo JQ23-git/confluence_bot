@@ -25,16 +25,10 @@ st.markdown("""
         background-color: #0e1117;
     }
     
-    /* LOGO FIXES */
+    /* LOGO STYLING */
     [data-testid="stImage"] {
-        /* 1. Kill the weird expand button on hover */
+        /* Removes the 'expand' arrows on hover */
         pointer-events: none;
-    }
-    
-    [data-testid="stImage"] img {
-        /* 2. Fix Faded Text: Boost brightness and contrast */
-        filter: brightness(1.15) contrast(1.1);
-        padding-top: 15px; /* Nudge it down slightly to align with button */
     }
     
     /* HEADER STATUS STYLING */
@@ -44,7 +38,7 @@ st.markdown("""
         align-items: flex-end;
         justify-content: center;
         height: 100%;
-        padding-top: 15px; /* Align with logo */
+        padding-top: 15px; 
     }
     .status-text {
         color: #22d3ee; 
@@ -227,11 +221,11 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     return pd.DataFrame(results), display_date
 
 # --- 5. THE HEADER LAYOUT ---
-# Columns adjusted for larger logo
+# Left column gets the logo, Right column gets the status
 col_left, col_right = st.columns([3, 1])
 
 with col_left:
-    # Increased width to 350 for better visibility
+    # 350px width makes it prominent and readable
     if os.path.exists("logo.png"):
         st.image("logo.png", width=350)
     else:
