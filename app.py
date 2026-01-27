@@ -6,7 +6,8 @@ import pytz
 import os
 
 # --- 1. CONFIG & STYLE ---
-st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="🎯")
+# Updated Title and linked the new favicon file
+st.set_page_config(layout="wide", page_title="confluence.bot", page_icon="favicon.ico")
 
 st.markdown("""
 <style>
@@ -30,7 +31,7 @@ st.markdown("""
         pointer-events: none;
     }
     
-    /* --- MASSIVE TABS FIX --- */
+    /* --- TABS STYLING --- */
     button[data-baseweb="tab"] div p {
         font-size: 22px !important;    
         font-weight: 900 !important;   
@@ -42,6 +43,12 @@ st.markdown("""
         padding-top: 10px !important;
         padding-bottom: 10px !important;
         margin-right: 20px !important;
+    }
+
+    /* SPECIFIC COLOR FOR COINS TAB (The 2nd Tab) */
+    /* Bitcoin Orange Hex: #F7931A */
+    button[data-baseweb="tab"]:nth-of-type(2) div p {
+        color: #F7931A !important;
     }
     
     /* HEADER STATUS STYLING */
@@ -169,7 +176,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
     
-    # --- FIX: UNIFIED VARIABLE NAME ---
     last_candle_date = spy_data.index[-1].date()
     today_date_ny = now_ny.date()
     
@@ -183,7 +189,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
              display_date = spy_data.index[-2].strftime('%b %d, %Y')
              use_last_row = False
     else:
-        # Stocks Logic: FIXED VARIABLE NAME HERE
         if last_candle_date == today_date_ny:
             if not is_market_closed_today:
                 spy_subset = spy_data.iloc[:-1] 
