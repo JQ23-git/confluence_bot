@@ -66,7 +66,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. DATA MAPPING ---
-# We define groups here to help the sub-tab logic later
 STOCK_GROUPS = {
     "Tech & AI": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "AMD", "QCOM", "INTC", "MU", "ASML", "TSM", "SNDK"],
     "Cyber & Cloud": ["PANW", "CRWD", "FTNT", "ZS", "CHKP", "OKTA", "IBM", "ORCL", "ADBE", "CRM", "CSCO"],
@@ -75,11 +74,10 @@ STOCK_GROUPS = {
     "Bio & Blue Chips": ["LLY", "UNH", "JNJ", "MRK", "ABBV", "AMGN", "PFE", "NVO", "TMO", "DNA", "SANA", "BRK-B", "WMT", "JPM", "V", "MA", "PG", "HD", "NFLX", "BABA", "TM", "BAC", "PEP", "KO", "MCD", "T", "NIO"]
 }
 
-# Flatten for the scanner
 STOCK_MAP = {}
 for category, tickers in STOCK_GROUPS.items():
     for t in tickers:
-        STOCK_MAP[t] = t # We will look up names if needed, or just use Ticker
+        STOCK_MAP[t] = t 
 
 CRYPTO_MAP = {
     "2Z-USD": "DoubleZero",    "A7A5-USD": "A7A5",    "AAVE-USD": "Aave",    "AB-USD": "AB",
@@ -254,7 +252,6 @@ def fetch_single_ticker(args):
             is_flip = True
             flip_text = "Gambit Buy 🔥"
 
-        # Benchmark Logic
         common_idx = target_df.index.intersection(spy_subset.index)
         if len(common_idx) > 20:
             aligned_stock = target_df.loc[common_idx]['Close']
@@ -263,6 +260,7 @@ def fetch_single_ticker(args):
             
             ratio_df = pd.DataFrame({'ratio': ratio})
             r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
+            
             rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
         else:
             rs_status = "—"
@@ -315,7 +313,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         processed = list(executor.map(fetch_single_ticker, tasks))
     results = [p for p in processed if p is not None]
 
-    # --- CATEGORICAL SORTING LOGIC ---
+    # --- CATEGORICAL & AUTO-SORT LOGIC ---
     df = pd.DataFrame(results)
     
     if not df.empty:
@@ -338,13 +336,15 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         ]
         if 'Confluence' in df.columns:
             df['Confluence'] = pd.Categorical(df['Confluence'], categories=confluence_cats, ordered=True)
+            # --- AUTO SORT HERE: Sort by Confluence by default ---
+            df = df.sort_values(by='Confluence')
 
     return df, display_date
 
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v3.0 (Tabs)") 
+    else: st.title("confluence.bot v3.1") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
@@ -367,15 +367,16 @@ def highlight_rows(row):
 tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "⚡ NEW FLIPS"])
 
 def get_col_config(asset_type):
+    # --- NO TOOLTIPS ---
     bench_name = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
     return {
         "is_flip": None, 
         "flip_type": None, 
         "Action": st.column_config.LinkColumn("Chart"),
-        "Trend (vs USD)": st.column_config.TextColumn("Trend (vs USD)", help="The asset's absolute price trend. \n🟢 Bullish: Price > Moving Averages\n🔴 Bearish: Price < Moving Averages"),
-        bench_name: st.column_config.TextColumn(bench_name, help=f"Relative Strength vs {bench_name.split()[-1]}.\n🟢 Bullish: Outperforming the market.\n🔴 Bearish: Underperforming the market."),
-        "Gambit Reversals": st.column_config.TextColumn("Gambit Reversals", help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today."),
-        "Confluence": st.column_config.TextColumn("Confluence", help="The Final Verdict:\n🚀 STRONG BUY: Bull Trend + Gambit Buy\n⬇️ STRONG SELL: Bear Trend + Gambit Sell\n⚠️ PULLBACK: Bull Trend + Gambit Sell\n🔥 REVERSAL: Bear Trend + Gambit Buy")
+        "Trend (vs USD)": st.column_config.TextColumn("Trend (vs USD)"),
+        bench_name: st.column_config.TextColumn(bench_name),
+        "Gambit Reversals": st.column_config.TextColumn("Gambit Reversals"),
+        "Confluence": st.column_config.TextColumn("Confluence")
     }
 
 # --- STOCKS TAB WITH SUB-TABS (NESTED) ---
@@ -383,19 +384,14 @@ with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Data Date: **{stock_date}**")
     
-    # Define Sub-Tabs
     subtabs = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     
-    # 1. ALL Tab
     with subtabs[0]:
         st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
     
-    # 2. Category Tabs
     for i, category in enumerate(STOCK_GROUPS.keys()):
         with subtabs[i+1]:
-            # Filter DataFrame by tickers in this group
             target_tickers = [t.replace("=F", "").replace("-USD", "") for t in STOCK_GROUPS[category]]
-            # Filter: Check if 'Ticker' is in our target list
             subset_df = df_stocks[df_stocks['Ticker'].isin(target_tickers)]
             st.dataframe(subset_df.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
 
@@ -422,7 +418,7 @@ with tab_flips:
         cols = [c for c in cols if c in df_flips.columns]
         
         flips_config = get_col_config("Stock") 
-        flips_config["flip_type"] = st.column_config.TextColumn("Trigger Event", help="What caused this asset to appear here (e.g., Trend Flip or Gambit Signal).")
+        flips_config["flip_type"] = st.column_config.TextColumn("Trigger Event")
         
         st.dataframe(
             df_flips[cols].style.apply(highlight_rows, axis=1),
