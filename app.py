@@ -31,15 +31,13 @@ st.markdown("""
     }
     
     /* --- MASSIVE TABS FIX --- */
-    /* 1. Target the Tab Labels */
     button[data-baseweb="tab"] div p {
-        font-size: 22px !important;    /* 2x bigger */
-        font-weight: 900 !important;   /* Ultra Bold */
-        text-transform: uppercase !important; /* ALL CAPS */
+        font-size: 22px !important;    
+        font-weight: 900 !important;   
+        text-transform: uppercase !important; 
         letter-spacing: 1px !important;
     }
     
-    /* 2. Target the Tab Container for spacing */
     button[data-baseweb="tab"] {
         padding-top: 10px !important;
         padding-bottom: 10px !important;
@@ -142,7 +140,6 @@ def get_ae_signal(df, target_col='hl2'):
     is_bull = (f > m) and (m > s) and (p > f)
     is_bear = (f < m) and (m < s) and (p < f)
 
-    # Number prefixes force the sort order (1 -> 2 -> 3)
     if is_bull:
         return "1. Bullish 🟢"
     elif is_bear:
@@ -165,13 +162,14 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     
     market_cutoff_hour = 16
     if asset_type == "Crypto":
-        market_cutoff_hour = 19 # 7 PM ET is 00:00 UTC
+        market_cutoff_hour = 19
         
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
     
+    # --- FIX: UNIFIED VARIABLE NAME ---
     last_candle_date = spy_data.index[-1].date()
     today_date_ny = now_ny.date()
     
@@ -185,13 +183,14 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
              display_date = spy_data.index[-2].strftime('%b %d, %Y')
              use_last_row = False
     else:
-        if last_row_date == today_date_ny:
+        # Stocks Logic: FIXED VARIABLE NAME HERE
+        if last_candle_date == today_date_ny:
             if not is_market_closed_today:
-                spy_subset = spy_data.iloc[:-1] # Drop live candle
+                spy_subset = spy_data.iloc[:-1] 
                 display_date = spy_data.index[-2].strftime('%b %d, %Y')
                 use_last_row = False
             else:
-                spy_subset = spy_data # Keep fresh close (4PM happened)
+                spy_subset = spy_data 
                 display_date = spy_data.index[-1].strftime('%b %d, %Y')
                 use_last_row = True
         else:
@@ -250,7 +249,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 
 with col_left:
-    # 350px width makes it prominent and readable
     if os.path.exists("logo.png"):
         st.image("logo.png", width=350)
     else:
@@ -287,7 +285,6 @@ def highlight_rows(row):
     else:
         return [''] * len(row)
 
-# UPDATED TABS: BIGGER, BOLDER, NEW COIN ICON
 tab_stocks, tab_coins, tab_commodities = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
 with tab_stocks:
