@@ -25,10 +25,18 @@ st.markdown("""
         background-color: #0e1117;
     }
     
-    /* LOGO STYLING */
+    /* LOGO STYLING - Clean & Fixed */
     [data-testid="stImage"] {
-        /* Removes the 'expand' arrows on hover */
-        pointer-events: none;
+        pointer-events: none; /* No hover effects */
+    }
+    
+    /* --- BIGGER TABS FIX --- */
+    /* This targets the tab labels specifically */
+    button[data-baseweb="tab"] {
+        font-size: 24px !important;
+        font-weight: 700 !important;
+        padding-right: 25px !important;
+        padding-left: 25px !important;
     }
     
     /* HEADER STATUS STYLING */
@@ -127,12 +135,13 @@ def get_ae_signal(df, target_col='hl2'):
     is_bull = (f > m) and (m > s) and (p > f)
     is_bear = (f < m) and (m < s) and (p < f)
 
+    # Number prefixes force the sort order (1 -> 2 -> 3)
     if is_bull:
-        return "Bullish 🟢"
+        return "1. Bullish 🟢"
     elif is_bear:
-        return "Bearish 🔴"
+        return "3. Bearish 🔴"
     else:
-        return "Neutral ⚪"
+        return "2. Neutral ⚪"
 
 @st.cache_resource
 def get_tv_instance():
@@ -147,31 +156,59 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     
+    # Logic for Market Close
+    # Crypto closes at 00:00 UTC (7PM ET)
+    # Stocks close at 4:00 PM ET
+    
     market_cutoff_hour = 16
     if asset_type == "Crypto":
-        market_cutoff_hour = 19
+        market_cutoff_hour = 19 # 7 PM ET is 00:00 UTC
         
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
     bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
     spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
     
-    last_candle_date = spy_data.index[-1].date()
-    today_date = now_ny.date()
+    # --- DATE SELECTION LOGIC ---
+    # We want the LAST COMPLETED candle.
+    # If market is closed (e.g. 7:20 PM ET), the 'last' row is the NEW live candle (tomorrow).
+    # We want the 'second to last' row (today's closed candle).
     
-    if last_candle_date == today_date:
-        if not is_market_closed_today:
-            spy_subset = spy_data.iloc[:-1] 
-            display_date = spy_data.index[-2].strftime('%b %d, %Y')
-            use_last_row = False
+    last_row_date = spy_data.index[-1].date()
+    today_date_ny = now_ny.date()
+    
+    if asset_type == "Crypto":
+        # Crypto is tricky because it never stops.
+        # If it's after 7PM ET, the last row is likely 'Tomorrow' (UTC).
+        # We assume the user wants the candle that JUST closed.
+        if is_market_closed_today:
+             # Take index -2 (The closed candle)
+             spy_subset = spy_data.iloc[:-1]
+             display_date = spy_data.index[-2].strftime('%b %d, %Y')
+             use_last_row = False
         else:
-            spy_subset = spy_data 
+             # It's before 7PM ET, so the live candle IS "Today"
+             # But for daily close strategy, we usually want yesterday's closed candle?
+             # Let's stick to the "Confirmed Close" logic.
+             # If it's mid-day, we show Yesterday's close (index -2)
+             spy_subset = spy_data.iloc[:-1]
+             display_date = spy_data.index[-2].strftime('%b %d, %Y')
+             use_last_row = False
+    else:
+        # Stocks Logic
+        if last_row_date == today_date_ny:
+            if not is_market_closed_today:
+                spy_subset = spy_data.iloc[:-1] # Drop live candle
+                display_date = spy_data.index[-2].strftime('%b %d, %Y')
+                use_last_row = False
+            else:
+                spy_subset = spy_data # Keep fresh close (4PM happened)
+                display_date = spy_data.index[-1].strftime('%b %d, %Y')
+                use_last_row = True
+        else:
+            spy_subset = spy_data
             display_date = spy_data.index[-1].strftime('%b %d, %Y')
             use_last_row = True
-    else:
-        spy_subset = spy_data
-        display_date = spy_data.index[-1].strftime('%b %d, %Y')
-        use_last_row = True
 
     progress_bar = st.progress(0, text=f"Scanning {asset_type} ({display_date})...")
     total = len(tickers_map)
@@ -221,11 +258,9 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     return pd.DataFrame(results), display_date
 
 # --- 5. THE HEADER LAYOUT ---
-# Left column gets the logo, Right column gets the status
 col_left, col_right = st.columns([3, 1])
 
 with col_left:
-    # 350px width makes it prominent and readable
     if os.path.exists("logo.png"):
         st.image("logo.png", width=350)
     else:
