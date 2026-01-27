@@ -1,6 +1,6 @@
 streamlit
 pandas
-pandas_ta_classic
-websocket-client
-pytz
-git+https://github.com/rongardF/tvdatafeed.git
+yfinance
+ta
+numpy
+tvDatafeed

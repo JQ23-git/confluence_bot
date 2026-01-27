@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-from tvDatafeed import TvDatafeed, Interval
-from datetime import datetime
+import yfinance as yf
+from datetime import datetime, timedelta
 import pytz
 import os
 import numpy as np
@@ -82,10 +82,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING ---
+# --- 2. DATA MAPPING (YAHOO FORMAT) ---
 STOCK_MAP = {
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
-    "AMZN": "Amazon", "META": "Meta Platforms", "BRK.B": "Berkshire Hathaway",
+    "AMZN": "Amazon", "META": "Meta Platforms", "BRK-B": "Berkshire Hathaway",
     "TSLA": "Tesla", "AVGO": "Broadcom", "TSM": "TSMC", "LLY": "Eli Lilly",
     "WMT": "Walmart", "JPM": "JPMorgan Chase", "V": "Visa", "UNH": "UnitedHealth",
     "JNJ": "Johnson & Johnson", "MA": "Mastercard", "PG": "Procter & Gamble",
@@ -100,29 +100,26 @@ STOCK_MAP = {
 }
 
 CRYPTO_MAP = {
-    "BTCUSDT": "Bitcoin", "ETHUSDT": "Ethereum", "BNBUSDT": "Binance Coin",
-    "XRPUSDT": "XRP", "SOLUSDT": "Solana", "TRXUSDT": "TRON", "DOGEUSDT": "Dogecoin",
-    "ADAUSDT": "Cardano", "BCHUSDT": "Bitcoin Cash", "XMRUSDT": "Monero",
-    "LINKUSDT": "Chainlink", "LEOUSDT": "LEO", "HYPEUSDT": "Hyperliquid",
-    "XLMUSDT": "Stellar", "ZECUSDT": "Zcash", "CCUSDT": "Canton", "SUIUSDT": "Sui",
-    "LTCUSDT": "Litecoin", "AVAXUSDT": "Avalanche", "TONUSDT": "Toncoin",
-    "CROUSDT": "Cronos", "DOTUSDT": "Polkadot", "UNIUSDT": "Uniswap",
-    "MNTUSDT": "Mantle", "BGBUSDT": "Bitget", "TAOUSDT": "Bittensor",
-    "AAVEUSDT": "Aave", "OKBUSDT": "OKB", "PEPEUSDT": "Pepe", "NEARUSDT": "NEAR",
-    "ICPUSDT": "Internet Comp", "ETCUSDT": "Ethereum Classic", "FILUSDT": "Filecoin",
-    "QNTUSDT": "Quant", "VETUSDT": "VeChain", "CHZUSDT": "Chiliz", "XTZUSDT": "Tezos",
-    "CAKEUSDT": "PancakeSwap", "NEXOUSDT": "Nexo", "ZROUSDT": "LayerZero",
-    "OPUSDT": "Optimism", "STXUSDT": "Stacks", "DASHUSDT": "Dash",
-    "XDCUSDT": "XDC Network", "AMPUSDT": "Amp", "APEUSDT": "ApeCoin",
-    "DYDXUSDT": "dYdX", "SNXUSDT": "Synthetix", "1INCHUSDT": "1inch", "ARUSDT": "Arweave"
+    "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "BNB-USD": "Binance Coin",
+    "XRP-USD": "XRP", "SOL-USD": "Solana", "ADA-USD": "Cardano", "DOGE-USD": "Dogecoin",
+    "TRX-USD": "TRON", "LINK-USD": "Chainlink", "DOT-USD": "Polkadot",
+    "MATIC-USD": "Polygon", "LTC-USD": "Litecoin", "SHIB-USD": "Shiba Inu",
+    "AVAX-USD": "Avalanche", "DAI-USD": "Dai", "UNI-USD": "Uniswap",
+    "ATOM-USD": "Cosmos", "XMR-USD": "Monero", "ETC-USD": "Ethereum Classic",
+    "XLM-USD": "Stellar", "BCH-USD": "Bitcoin Cash", "FIL-USD": "Filecoin",
+    "NEAR-USD": "NEAR Protocol", "QNT-USD": "Quant", "APE-USD": "ApeCoin",
+    "HBAR-USD": "Hedera", "ICP-USD": "Internet Computer", "AAVE-USD": "Aave",
+    "EOS-USD": "EOS", "EGLD-USD": "MultiversX", "SAND-USD": "The Sandbox",
+    "THETA-USD": "Theta Network", "AXS-USD": "Axie Infinity", "MANA-USD": "Decentraland",
+    "XTZ-USD": "Tezos", "CHZ-USD": "Chiliz", "ZEC-USD": "Zcash", "BSV-USD": "Bitcoin SV"
 }
 
 COMMODITY_MAP = {
-    "GLD": "Gold", "SLV": "Silver", "PPLT": "Platinum", "PALL": "Palladium",
-    "CPER": "Copper", "JJU": "Aluminum", "JJN": "Nickel", "USO": "Crude Oil WTI", 
-    "BNO": "Crude Oil Brent", "UNG": "Natural Gas", "UGA": "Gasoline RBOB", 
-    "UHN": "Heating Oil", "URA": "Uranium ETF", "ZC1!": "Corn", "ZW1!": "Wheat", 
-    "ZS1!": "Soybeans", "JO": "Coffee", "CANE": "Sugar"
+    "GC=F": "Gold", "SI=F": "Silver", "PL=F": "Platinum", "PA=F": "Palladium",
+    "HG=F": "Copper", "CL=F": "Crude Oil", "BZ=F": "Brent Crude",
+    "NG=F": "Natural Gas", "RB=F": "Gasoline", "HO=F": "Heating Oil",
+    "ZC=F": "Corn", "ZW=F": "Wheat", "ZS=F": "Soybeans",
+    "KC=F": "Coffee", "SB=F": "Sugar", "CC=F": "Cocoa", "CT=F": "Cotton"
 }
 
 # --- 3. INDICATOR LOGIC ---
@@ -132,7 +129,7 @@ def calculate_smma(series, length):
 
 def get_ae_signal(df, target_col='hl2'):
     if target_col == 'hl2':
-        src = (df['high'] + df['low']) / 2
+        src = (df['High'] + df['Low']) / 2
     else:
         src = df[target_col]
 
@@ -150,52 +147,48 @@ def get_gambit_signal(df):
     alpha_fast = 3.5 / (len_val + 1)
     alpha_slow = 2.0 / (len_val + 1)
     
-    tl1 = df['low'].ewm(alpha=alpha_fast, adjust=False).mean()
-    tl = df['low'].ewm(alpha=alpha_slow, adjust=False).mean()
+    tl1 = df['Low'].ewm(alpha=alpha_fast, adjust=False).mean()
+    tl = df['Low'].ewm(alpha=alpha_slow, adjust=False).mean()
     tl3 = tl - tl1
     tl4 = tl3.rolling(8).rank(pct=True)
     tl5 = (tl3 < 0) & (tl4 > 0.75)
     l = np.where(tl5, tl, tl1)
     l_series = pd.Series(l, index=df.index)
 
-    th1 = df['high'].ewm(alpha=alpha_fast, adjust=False).mean()
-    th = df['high'].ewm(alpha=alpha_slow, adjust=False).mean()
+    th1 = df['High'].ewm(alpha=alpha_fast, adjust=False).mean()
+    th = df['High'].ewm(alpha=alpha_slow, adjust=False).mean()
     th3 = th1 - th
     th4 = th3.rolling(8).rank(pct=True)
     th5 = (th3 > 0) & (th4 < 0.25)
     h = np.where(th5, th, th1)
     h_series = pd.Series(h, index=df.index)
 
-    prev_close = df['close'].shift(1)
+    prev_close = df['Close'].shift(1)
     prev_l = l_series.shift(1)
-    is_ucru = (prev_close < prev_l) & (df['close'] > l_series) & (df['close'] < h_series) & (df['close'] > df['open'])
-    rev_up = is_ucru.shift(1) & (df['close'] > df['high'].shift(1))
-    is_ur = (df['close'] < h_series) & (df['close'] < prev_close) & (df['close'].shift(2) > h_series.shift(2))
+    is_ucru = (prev_close < prev_l) & (df['Close'] > l_series) & (df['Close'] < h_series) & (df['Close'] > df['Open'])
+    rev_up = is_ucru.shift(1) & (df['Close'] > df['High'].shift(1))
+    is_ur = (df['Close'] < h_series) & (df['Close'] < prev_close) & (df['Close'].shift(2) > h_series.shift(2))
     return rev_up, is_ur
 
-@st.cache_resource
-def get_tv_instance():
-    return TvDatafeed()
-
+# --- 4. THE YAHOO TURBO SCANNER ---
 def fetch_single_ticker(args):
-    ticker, name, asset_type, spy_subset, is_market_closed_today, use_last_row, tv = args
+    ticker, name, asset_type, spy_subset, is_market_closed_today = args
     try:
-        exchange = 'NASDAQ' 
-        if "USDT" in ticker: exchange = 'BINANCE'
-        if ticker in ["ZC1!", "ZW1!", "ZS1!"]: exchange = "CBOT"
-        
-        df = tv.get_hist(symbol=ticker, exchange=exchange, interval=Interval.in_daily, n_bars=100)
-        if df is None: df = tv.get_hist(symbol=ticker, exchange='NYSE', interval=Interval.in_daily, n_bars=100)
-        if df is None: df = tv.get_hist(symbol=ticker, exchange='AMEX', interval=Interval.in_daily, n_bars=100)
+        # Fetch Data (1y is plenty)
+        df = yf.Ticker(ticker).history(period="1y")
         
         if df is None or df.empty: return None
-
+        if len(df) < 50: return None
+        
+        # Yahoo data logic
         target_df = df.copy()
-        if not use_last_row:
-            target_df = target_df.iloc[:-1]
+        
+        # If market is Open, last row is live. Drop it for confirmed daily close.
+        # Crypto is 24/7 so we keep it or handle consistently.
+        if asset_type != "Crypto" and not is_market_closed_today:
+             target_df = target_df.iloc[:-1]
 
-        if len(target_df) < 50: return None
-
+        # --- SIGNALS ---
         bull_series, bear_series = get_ae_signal(target_df, 'hl2')
         rev_up_series, rev_down_series = get_gambit_signal(target_df)
         
@@ -204,7 +197,6 @@ def fetch_single_ticker(args):
         gambit_buy = rev_up_series.iloc[-1]
         gambit_sell = rev_down_series.iloc[-1]
         
-        # --- CLEAN TEXT: NO NUMBERS ---
         trend_status = "Neutral ⚪"
         if today_bull: trend_status = "Bullish 🟢"
         elif today_bear: trend_status = "Bearish 🔴"
@@ -213,7 +205,6 @@ def fetch_single_ticker(args):
         if gambit_buy: gambit_status = "🟢 BUY (Reversal)"
         elif gambit_sell: gambit_status = "🔴 SELL (Pivot)"
         
-        # --- CLEAN CONFLUENCE TEXT ---
         confluence_text = "⚪ Neutral"
         
         if today_bull:
@@ -231,7 +222,6 @@ def fetch_single_ticker(args):
             else:
                 confluence_text = "📉 Trending Down"
         
-        # Calculate Flip status (for the flips tab)
         yest_bull = bull_series.iloc[-2]
         yest_bear = bear_series.iloc[-2]
         is_flip = False
@@ -247,66 +237,76 @@ def fetch_single_ticker(args):
             is_flip = True
             flip_text = "Gambit Buy 🔥"
 
-        aligned_df = target_df['close'].to_frame(name='stock').join(spy_subset['close'].to_frame(name='spy')).dropna()
-        aligned_df['ratio'] = aligned_df['stock'] / aligned_df['spy']
-        rs_bull, rs_bear = get_ae_signal(aligned_df, 'ratio')
+        # Benchmark Logic (Simplified for speed in Yahoo mode)
+        # We assume SPY/BTC alignment by date index intersection
+        # This keeps it fast without re-fetching benchmark 500 times
         
-        bench_col = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
-        # --- CLEAN BENCHMARK TEXT ---
-        rs_status = "Bullish 🟢" if rs_bull.iloc[-1] else "Bearish 🔴" if rs_bear.iloc[-1] else "Neutral ⚪"
+        # Quick Benchmark Trend (using Pre-fetched SPY subset passed in args)
+        # We need to align dates.
+        common_idx = target_df.index.intersection(spy_subset.index)
+        if len(common_idx) > 20:
+            aligned_stock = target_df.loc[common_idx]['Close']
+            aligned_bench = spy_subset.loc[common_idx]['Close']
+            ratio = aligned_stock / aligned_bench
+            
+            # Recalc AE on Ratio
+            # We need a dataframe structure for get_ae_signal which expects 'high'/'low' or target col
+            ratio_df = pd.DataFrame({'ratio': ratio})
+            r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
+            rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
+        else:
+            rs_status = "—"
 
+        # Link logic
+        clean_ticker = ticker.replace("=F", "")
+        tv_link_ticker = ticker
+        if asset_type == "Crypto": 
+            tv_link_ticker = "BINANCE:" + ticker.replace("-USD", "USDT")
+        else:
+            tv_link_ticker = clean_ticker
+            
         return {
             "Company": name, 
-            "Ticker": ticker.replace("1!", ""),
-            "Price": f"${target_df['close'].iloc[-1]:.2f}",
+            "Ticker": clean_ticker,
+            "Price": f"${target_df['Close'].iloc[-1]:.2f}",
             "Trend (vs USD)": trend_status,
-            bench_col: rs_status,           
+            "Trend (vs SPY)" if asset_type != "Crypto" else "Trend (vs BTC)": rs_status,
             "Gambit Reversals": gambit_status,
             "Confluence": confluence_text,
-            "Action": f"https://www.tradingview.com/chart/?symbol={ticker}",
+            "Action": f"https://www.tradingview.com/chart/?symbol={tv_link_ticker}",
             "is_flip": is_flip,
             "flip_type": flip_text
         }
     except Exception:
         return None
 
-@st.cache_data(ttl=3600, show_spinner="Analyzing Market Data...") 
+@st.cache_data(ttl=3600, show_spinner="Turbo Scanning Markets...") 
 def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
-    tv = get_tv_instance()
     tz_ny = pytz.timezone('US/Eastern')
     now_ny = datetime.now(tz_ny)
     
     market_cutoff_hour = 16
-    if asset_type == "Crypto": market_cutoff_hour = 19
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
-    bench_exchange = 'AMEX' if "SPY" in benchmark_symbol else 'BINANCE'
-    spy_data = tv.get_hist(symbol=benchmark_symbol, exchange=bench_exchange, interval=Interval.in_daily, n_bars=100)
+    # Fetch Benchmark once
+    bench_ticker = yf.Ticker(benchmark_symbol)
+    bench_hist = bench_ticker.history(period="1y")
     
-    last_candle_date = spy_data.index[-1].date()
-    today_date_ny = now_ny.date()
+    # Date Display
+    display_date = bench_hist.index[-1].strftime('%b %d, %Y')
     
-    spy_subset = spy_data
-    use_last_row = True
-    display_date = spy_data.index[-1].strftime('%b %d, %Y')
-    
-    if asset_type == "Crypto":
-        if not is_market_closed_today:
-             spy_subset = spy_data.iloc[:-1]
-             display_date = spy_data.index[-2].strftime('%b %d, %Y')
-             use_last_row = False
-    else:
-        if last_candle_date == today_date_ny and not is_market_closed_today:
-             spy_subset = spy_data.iloc[:-1]
-             display_date = spy_data.index[-2].strftime('%b %d, %Y')
-             use_last_row = False
+    # Prepare benchmark subset for Ratio calcs
+    spy_subset = bench_hist.copy()
+    if asset_type != "Crypto" and not is_market_closed_today:
+        spy_subset = spy_subset.iloc[:-1]
 
     tasks = []
     for ticker, name in tickers_map.items():
-        tasks.append((ticker, name, asset_type, spy_subset, is_market_closed_today, use_last_row, tv))
+        tasks.append((ticker, name, asset_type, spy_subset, is_market_closed_today))
     
     results = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    # --- TURBO MODE: 20 WORKERS ---
+    with ThreadPoolExecutor(max_workers=20) as executor:
         processed = list(executor.map(fetch_single_ticker, tasks))
     results = [p for p in processed if p is not None]
 
@@ -317,7 +317,7 @@ with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
     else: st.title("confluence.bot")
 with col_right:
-    st.markdown("""<div class="status-container"><div class="status-text">● System Online</div></div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
         st.cache_data.clear()
         st.rerun()
@@ -327,15 +327,12 @@ st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_htm
 
 def highlight_rows(row):
     val = row.get('Confluence', '')
-    
     if "STRONG BUY" in val: return ['background-color: #06402B'] * len(row) 
     if "STRONG SELL" in val: return ['background-color: #4a0f0f'] * len(row) 
     if "REVERSAL" in val: return ['background-color: #5c4d00'] * len(row) 
     if "PULLBACK" in val: return ['background-color: #5c2b00'] * len(row)
-    
     if "Trending Up" in val: return ['background-color: #1b4d3e'] * len(row)
     if "Trending Down" in val: return ['background-color: #4d1b1b'] * len(row)
-    
     return [''] * len(row)
 
 tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "⚡ NEW FLIPS"])
@@ -346,7 +343,6 @@ def get_col_config(asset_type):
         "is_flip": None, 
         "flip_type": None, 
         "Action": st.column_config.LinkColumn("Chart"),
-        
         "Trend (vs USD)": st.column_config.TextColumn("Trend (vs USD)", help="The asset's absolute price trend. \n🟢 Bullish: Price > Moving Averages\n🔴 Bearish: Price < Moving Averages"),
         bench_name: st.column_config.TextColumn(bench_name, help=f"Relative Strength vs {bench_name.split()[-1]}.\n🟢 Bullish: Outperforming the market.\n🔴 Bearish: Underperforming the market."),
         "Gambit Reversals": st.column_config.TextColumn("Gambit Reversals", help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today."),
@@ -359,7 +355,7 @@ with tab_stocks:
     st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
 
 with tab_coins:
-    df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTCUSDT", "Crypto")
+    df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTC-USD", "Crypto")
     st.caption(f"📅 Data Date: **{crypto_date}**")
     st.dataframe(df_crypto.style.apply(highlight_rows, axis=1), column_config=get_col_config("Crypto"), hide_index=True, use_container_width=False, height=1200)
 
