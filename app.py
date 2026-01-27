@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, time
+from datetime import datetime, timedelta
 import pytz
 import os
 import numpy as np
@@ -24,8 +24,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. DATA MAPPING ---
-
-# STOCK GROUPS
 STOCK_GROUPS = {
     "Tech & AI": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "AMD", "QCOM", "INTC", "MU", "ASML", "TSM"],
     "Cyber & Cloud": ["PANW", "CRWD", "FTNT", "ZS", "CHKP", "OKTA", "IBM", "ORCL", "ADBE", "CRM", "CSCO"],
@@ -35,18 +33,14 @@ STOCK_GROUPS = {
 }
 STOCK_MAP = {t: t for cat in STOCK_GROUPS.values() for t in cat}
 
-# DYNAMIC CRYPTO LOAD (From your CSV)
 def get_crypto_map():
     if os.path.exists('top200_non_stable_non_wrapped.csv'):
         df_csv = pd.read_csv('top200_non_stable_non_wrapped.csv')
-        # Ensure Ticker column exists
         if 'Ticker' in df_csv.columns:
-            return {f"{row['Ticker']}-USD": row['Name'] for _, row in df_csv.iterrows()}
-    # Fallback to base list if file missing
-    return {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
+            return {f"{str(row['Ticker']).strip()}-USD": str(row['Name']).strip() for _, row in df_csv.iterrows()}
+    return {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum"}
 
 CRYPTO_MAP = get_crypto_map()
-
 COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas", "ZC=F": "Corn"}
 
 # --- 3. INDICATORS ---
@@ -67,17 +61,16 @@ def get_gambit_signal(df):
 
 # --- 4. ENGINE ---
 def fetch_ticker(args):
-    ticker, name, asset_type, spy_sub, now_et = args
+    ticker, name, asset_type, spy_sub, now_cst = args
     try:
         df = yf.Ticker(ticker).history(period="1y")
         if df is None or len(df) < 50: return None
         
-        # SMART DROP LOGIC: Only drop if the last candle is currently trading
-        last_date = df.index[-1].date()
-        if asset_type == "Crypto":
-            if last_date == datetime.now(pytz.utc).date(): df = df.iloc[:-1]
-        else:
-            if last_date == now_et.date() and now_et.hour < 16: df = df.iloc[:-1]
+        # --- THE 5PM CST RULE ---
+        # If it's before 5PM CST, the current day's candle is live/unreliable.
+        # Yahoo's 'today' candle starts at 00:00 UTC. 
+        if now_cst.time() < time(17, 0):
+            df = df.iloc[:-1]
 
         bull, bear = get_ae_signal(df)
         buy, sell = get_gambit_signal(df)
@@ -105,22 +98,19 @@ def fetch_ticker(args):
                 "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"}
     except: return None
 
+from datetime import time
+
 @st.cache_data(ttl=3600)
 def scan(t_map, bench, a_type):
-    tz = pytz.timezone('US/Eastern'); now_et = datetime.now(tz)
-    spy = yf.Ticker(bench).history(period="1y")
+    tz_cst = pytz.timezone('US/Central')
+    now_cst = datetime.now(tz_cst)
     
-    # Correct benchmark timing
-    last_spy_date = spy.index[-1].date()
-    if a_type == "Crypto":
-        if last_spy_date == datetime.now(pytz.utc).date(): spy_sub = spy.iloc[:-1]
-        else: spy_sub = spy
-    else:
-        if last_spy_date == now_et.date() and now_et.hour < 16: spy_sub = spy.iloc[:-1]
-        else: spy_sub = spy
+    spy = yf.Ticker(bench).history(period="1y")
+    # Apply 5PM rule to benchmark to keep dates aligned
+    spy_sub = spy.iloc[:-1] if now_cst.time() < time(17, 0) else spy
 
-    tasks = [(t, n, a_type, spy_sub, now_et) for t, n in t_map.items()]
-    with ThreadPoolExecutor(max_workers=25) as exe:
+    tasks = [(t, n, a_type, spy_sub, now_cst) for t, n in t_map.items()]
+    with ThreadPoolExecutor(max_workers=30) as exe:
         results = [r for r in list(exe.map(fetch_ticker, tasks)) if r]
     
     df = pd.DataFrame(results)
@@ -134,7 +124,7 @@ def scan(t_map, bench, a_type):
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v4.3")
+    else: st.title("confluence.bot v4.4")
 with col2:
     st.markdown('<div class="status-container"><div class="status-text">● Turbo Online</div></div>', unsafe_allow_html=True)
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
@@ -159,7 +149,7 @@ def draw(df, bench_name="Trend (vs SPY)"):
 
 with t_stocks:
     df_s, d_s = scan(STOCK_MAP, "SPY", "Stock")
-    st.caption(f"📅 Confirmed Data Date: {d_s}")
+    st.caption(f"📅 Daily Close: {d_s}")
     sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     with sub[0]: draw(df_s, "Trend (vs SPY)")
     for i, cat in enumerate(STOCK_GROUPS.keys()):
@@ -167,10 +157,10 @@ with t_stocks:
 
 with t_coins:
     df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
-    st.caption(f"📅 Confirmed Data Date: {d_c}")
+    st.caption(f"📅 Daily Close (5PM CST): {d_c}")
     draw(df_c, "Trend (vs BTC)")
 
 with t_comm:
     df_m, d_m = scan(COMMODITY_MAP, "SPY", "Comm")
-    st.caption(f"📅 Confirmed Data Date: {d_m}")
+    st.caption(f"📅 Daily Close: {d_m}")
     draw(df_m, "Trend (vs SPY)")
