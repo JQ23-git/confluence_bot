@@ -82,20 +82,45 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA MAPPING (YAHOO FORMAT) ---
+# --- 2. DATA MAPPING (YAHOO FORMAT - SUPER LIST) ---
 STOCK_MAP = {
+    # --- MAGNIFICENT 7 & BIG TECH ---
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet",
-    "AMZN": "Amazon", "META": "Meta Platforms", "BRK-B": "Berkshire Hathaway",
-    "TSLA": "Tesla", "AVGO": "Broadcom", "TSM": "TSMC", "LLY": "Eli Lilly",
-    "WMT": "Walmart", "JPM": "JPMorgan Chase", "V": "Visa", "UNH": "UnitedHealth",
-    "JNJ": "Johnson & Johnson", "MA": "Mastercard", "PG": "Procter & Gamble",
-    "HD": "Home Depot", "NFLX": "Netflix", "BABA": "Alibaba", "XOM": "Exxon Mobil",
-    "CVX": "Chevron", "TM": "Toyota", "BAC": "Bank of America", "MRK": "Merck & Co",
-    "PEP": "PepsiCo", "KO": "Coca-Cola", "ABBV": "AbbVie", "ORCL": "Oracle",
-    "ADBE": "Adobe", "CRM": "Salesforce", "CSCO": "Cisco", "AMD": "AMD",
-    "QCOM": "Qualcomm", "INTC": "Intel", "AMGN": "Amgen", "PFE": "Pfizer",
-    "ASML": "ASML", "NVO": "Novo Nordisk", "MCD": "McDonalds", "TMO": "Thermo Fisher",
-    "MU": "Micron Tech", "SNDK": "SanDisk", "DNA": "Ginkgo Bioworks", 
+    "AMZN": "Amazon", "META": "Meta Platforms", "TSLA": "Tesla", "AVGO": "Broadcom",
+    
+    # --- CYBERSECURITY & CLOUD ---
+    "PANW": "Palo Alto Networks", "CRWD": "CrowdStrike", "FTNT": "Fortinet",
+    "ZS": "Zscaler", "CHKP": "Check Point", "OKTA": "Okta",
+    "IBM": "IBM", "ORCL": "Oracle", "ADBE": "Adobe", "CRM": "Salesforce",
+    "CSCO": "Cisco", "AMD": "AMD", "QCOM": "Qualcomm", "INTC": "Intel",
+    "MU": "Micron Tech", "ASML": "ASML", "TSM": "TSMC",
+    
+    # --- DEFENSE & AEROSPACE ---
+    "RTX": "RTX Corp", "BA": "Boeing", "LMT": "Lockheed Martin",
+    "NOC": "Northrop Grumman", "LHX": "L3Harris",
+    
+    # --- SPACE & SATELLITE ---
+    "RKLB": "Rocket Lab", "ASTS": "AST SpaceMobile", "PL": "Planet Labs",
+    "IRDM": "Iridium Comm", "RDW": "Redwire", "SPIR": "Spire Global",
+    "SPCE": "Virgin Galactic",
+    
+    # --- ENERGY & CLEAN TECH ---
+    "GEV": "GE Vernova", "NEE": "NextEra Energy", "FSLR": "First Solar",
+    "BEP": "Brookfield Renewable", "RUN": "Sunrun", "CWEN": "Clearway Energy",
+    "FLNC": "Fluence Energy", "XOM": "Exxon Mobil", "CVX": "Chevron",
+    
+    # --- BLUE CHIPS & PHARMA ---
+    "BRK-B": "Berkshire Hathaway", "LLY": "Eli Lilly", "WMT": "Walmart",
+    "JPM": "JPMorgan Chase", "V": "Visa", "MA": "Mastercard",
+    "UNH": "UnitedHealth", "JNJ": "Johnson & Johnson", "PG": "Procter & Gamble",
+    "HD": "Home Depot", "NFLX": "Netflix", "BABA": "Alibaba",
+    "TM": "Toyota", "BAC": "Bank of America", "MRK": "Merck & Co",
+    "PEP": "PepsiCo", "KO": "Coca-Cola", "ABBV": "AbbVie",
+    "AMGN": "Amgen", "PFE": "Pfizer", "NVO": "Novo Nordisk",
+    "MCD": "McDonalds", "TMO": "Thermo Fisher", "T": "AT&T",
+    
+    # --- SPECULATIVE / OTHERS ---
+    "SNDK": "SanDisk", "DNA": "Ginkgo Bioworks", 
     "SANA": "Sana Biotech", "NIO": "NIO Inc"
 }
 
@@ -311,7 +336,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v2.0 (Turbo)") 
+    else: st.title("confluence.bot v2.1") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
