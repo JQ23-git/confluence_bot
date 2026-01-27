@@ -239,17 +239,13 @@ def fetch_single_ticker(args):
         bench_col = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
         rs_status = "1. Bullish 🟢" if rs_bull.iloc[-1] else "3. Bearish 🔴" if rs_bear.iloc[-1] else "2. Neutral ⚪"
 
-        # --- REORDERED DICTIONARY ---
-        # 1. Trend (vs USD)
-        # 2. Trend (vs SPY) / (vs BTC)
-        # 3. Gambit Reversals
         return {
             "Company": name, 
             "Ticker": ticker.replace("1!", ""),
             "Price": f"${target_df['close'].iloc[-1]:.2f}",
             "Trend (vs USD)": trend_status,
-            bench_col: rs_status,           # Moved UP
-            "Gambit Reversals": gambit_status, # Moved DOWN & Renamed
+            bench_col: rs_status,           
+            "Gambit Reversals": gambit_status,
             "Action": f"https://www.tradingview.com/chart/?symbol={ticker}",
             "is_flip": is_flip,
             "flip_type": flip_text,
@@ -327,27 +323,46 @@ def highlight_rows(row):
 
 tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "⚡ NEW FLIPS"])
 
-hidden_cols = {
-    "is_flip": None, 
-    "flip_type": None, 
-    "score": None,
-    "Action": st.column_config.LinkColumn("Chart")
-}
+# --- DEFINE COLUMN CONFIG WITH TOOLTIPS ---
+def get_col_config(asset_type):
+    # Dynamic tooltip for the benchmark column
+    bench_name = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
+    
+    return {
+        "is_flip": None, 
+        "flip_type": None, 
+        "score": None,
+        "Action": st.column_config.LinkColumn("Chart"),
+        
+        # --- TOOLTIPS ADDED HERE ---
+        "Trend (vs USD)": st.column_config.TextColumn(
+            "Trend (vs USD)",
+            help="The asset's absolute price trend. \n🟢 Bullish: Price > Moving Averages\n🔴 Bearish: Price < Moving Averages"
+        ),
+        bench_name: st.column_config.TextColumn(
+            bench_name,
+            help=f"Relative Strength vs {bench_name.split()[-1]}.\n🟢 Bullish: Outperforming the market.\n🔴 Bearish: Underperforming the market."
+        ),
+        "Gambit Reversals": st.column_config.TextColumn(
+            "Gambit Reversals",
+            help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today."
+        )
+    }
 
 with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Data Date: **{stock_date}**")
-    st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=hidden_cols, hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=True, height=1200)
 
 with tab_coins:
     df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTCUSDT", "Crypto")
     st.caption(f"📅 Data Date: **{crypto_date}**")
-    st.dataframe(df_crypto.style.apply(highlight_rows, axis=1), column_config=hidden_cols, hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df_crypto.style.apply(highlight_rows, axis=1), column_config=get_col_config("Crypto"), hide_index=True, use_container_width=True, height=1200)
 
 with tab_commodities:
     df_comm, comm_date = scan_market(COMMODITY_MAP, "SPY", "Commodity")
     st.caption(f"📅 Data Date: **{comm_date}**")
-    st.dataframe(df_comm.style.apply(highlight_rows, axis=1), column_config=hidden_cols, hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df_comm.style.apply(highlight_rows, axis=1), column_config=get_col_config("Commodity"), hide_index=True, use_container_width=True, height=1200)
 
 with tab_flips:
     st.caption("⚡ Assets that triggered a Signal or Flip TODAY")
@@ -358,12 +373,16 @@ with tab_flips:
     
     if all_flips:
         df_flips = pd.concat(all_flips, ignore_index=True)
-        # --- FLIPS TAB COLUMN UPDATE ---
         cols = ['Company', 'Ticker', 'flip_type', 'Trend (vs USD)', 'Gambit Reversals', 'Price', 'Action', 'score']
         cols = [c for c in cols if c in df_flips.columns]
+        
+        # Merge tooltips with Flips-specific config
+        flips_config = get_col_config("Stock") # Default to Stock tooltip for shared columns
+        flips_config["flip_type"] = st.column_config.TextColumn("Trigger Event", help="What caused this asset to appear here (e.g., Trend Flip or Gambit Signal).")
+        
         st.dataframe(
             df_flips[cols].style.apply(highlight_rows, axis=1),
-            column_config={"Action": st.column_config.LinkColumn("Chart"), "flip_type": st.column_config.TextColumn("Trigger Event"), "score": None},
+            column_config=flips_config,
             hide_index=True, use_container_width=True
         )
     else:
