@@ -204,19 +204,34 @@ def fetch_single_ticker(args):
         gambit_buy = rev_up_series.iloc[-1]
         gambit_sell = rev_down_series.iloc[-1]
         
-        trend_status = "2. Neutral ⚪"
-        if today_bull: trend_status = "1. Bullish 🟢"
-        elif today_bear: trend_status = "3. Bearish 🔴"
+        # --- CLEAN TEXT: NO NUMBERS ---
+        trend_status = "Neutral ⚪"
+        if today_bull: trend_status = "Bullish 🟢"
+        elif today_bear: trend_status = "Bearish 🔴"
         
         gambit_status = "—"
         if gambit_buy: gambit_status = "🟢 BUY (Reversal)"
         elif gambit_sell: gambit_status = "🔴 SELL (Pivot)"
         
-        confluence_score = 0
-        if today_bull and gambit_buy: confluence_score = 2
-        elif today_bear and gambit_sell: confluence_score = -2
-        elif not today_bull and gambit_buy: confluence_score = 1
+        # --- CLEAN CONFLUENCE TEXT ---
+        confluence_text = "⚪ Neutral"
         
+        if today_bull:
+            if gambit_buy:
+                confluence_text = "🚀 STRONG BUY"
+            elif gambit_sell:
+                confluence_text = "⚠️ PULLBACK"
+            else:
+                confluence_text = "📈 Trending Up"
+        elif today_bear:
+            if gambit_sell:
+                confluence_text = "⬇️ STRONG SELL"
+            elif gambit_buy:
+                confluence_text = "🔥 REVERSAL"
+            else:
+                confluence_text = "📉 Trending Down"
+        
+        # Calculate Flip status (for the flips tab)
         yest_bull = bull_series.iloc[-2]
         yest_bear = bear_series.iloc[-2]
         is_flip = False
@@ -237,7 +252,8 @@ def fetch_single_ticker(args):
         rs_bull, rs_bear = get_ae_signal(aligned_df, 'ratio')
         
         bench_col = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
-        rs_status = "1. Bullish 🟢" if rs_bull.iloc[-1] else "3. Bearish 🔴" if rs_bear.iloc[-1] else "2. Neutral ⚪"
+        # --- CLEAN BENCHMARK TEXT ---
+        rs_status = "Bullish 🟢" if rs_bull.iloc[-1] else "Bearish 🔴" if rs_bear.iloc[-1] else "Neutral ⚪"
 
         return {
             "Company": name, 
@@ -246,10 +262,10 @@ def fetch_single_ticker(args):
             "Trend (vs USD)": trend_status,
             bench_col: rs_status,           
             "Gambit Reversals": gambit_status,
+            "Confluence": confluence_text,
             "Action": f"https://www.tradingview.com/chart/?symbol={ticker}",
             "is_flip": is_flip,
-            "flip_type": flip_text,
-            "score": confluence_score
+            "flip_type": flip_text
         }
     except Exception:
         return None
@@ -310,34 +326,33 @@ st.write("")
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
 def highlight_rows(row):
-    s = row.get('score', 0)
-    if s == 2: return ['background-color: #06402B'] * len(row) 
-    elif s == -2: return ['background-color: #4a0f0f'] * len(row) 
-    elif s == 1: return ['background-color: #5c4d00'] * len(row) 
+    val = row.get('Confluence', '')
     
-    trend = row.get('Trend (vs USD)', '')
-    if "Bullish" in trend: return ['background-color: #1b4d3e'] * len(row)
-    elif "Bearish" in trend: return ['background-color: #4d1b1b'] * len(row)
+    if "STRONG BUY" in val: return ['background-color: #06402B'] * len(row) 
+    if "STRONG SELL" in val: return ['background-color: #4a0f0f'] * len(row) 
+    if "REVERSAL" in val: return ['background-color: #5c4d00'] * len(row) 
+    if "PULLBACK" in val: return ['background-color: #5c2b00'] * len(row)
+    
+    if "Trending Up" in val: return ['background-color: #1b4d3e'] * len(row)
+    if "Trending Down" in val: return ['background-color: #4d1b1b'] * len(row)
     
     return [''] * len(row)
 
 tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "⚡ NEW FLIPS"])
 
-# --- DEFINE COLUMN CONFIG WITH TOOLTIPS ---
 def get_col_config(asset_type):
     bench_name = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
     return {
         "is_flip": None, 
         "flip_type": None, 
-        "score": None,
         "Action": st.column_config.LinkColumn("Chart"),
         
         "Trend (vs USD)": st.column_config.TextColumn("Trend (vs USD)", help="The asset's absolute price trend. \n🟢 Bullish: Price > Moving Averages\n🔴 Bearish: Price < Moving Averages"),
         bench_name: st.column_config.TextColumn(bench_name, help=f"Relative Strength vs {bench_name.split()[-1]}.\n🟢 Bullish: Outperforming the market.\n🔴 Bearish: Underperforming the market."),
-        "Gambit Reversals": st.column_config.TextColumn("Gambit Reversals", help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today.")
+        "Gambit Reversals": st.column_config.TextColumn("Gambit Reversals", help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today."),
+        "Confluence": st.column_config.TextColumn("Confluence", help="The Final Verdict:\n🚀 STRONG BUY: Bull Trend + Gambit Buy\n⬇️ STRONG SELL: Bear Trend + Gambit Sell\n⚠️ PULLBACK: Bull Trend + Gambit Sell\n🔥 REVERSAL: Bear Trend + Gambit Buy")
     }
 
-# --- IMPORTANT CHANGE: use_container_width=False (COMPACT VIEW) ---
 with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Data Date: **{stock_date}**")
@@ -362,7 +377,7 @@ with tab_flips:
     
     if all_flips:
         df_flips = pd.concat(all_flips, ignore_index=True)
-        cols = ['Company', 'Ticker', 'flip_type', 'Trend (vs USD)', 'Gambit Reversals', 'Price', 'Action', 'score']
+        cols = ['Company', 'Ticker', 'flip_type', 'Trend (vs USD)', 'Gambit Reversals', 'Confluence', 'Price', 'Action']
         cols = [c for c in cols if c in df_flips.columns]
         
         flips_config = get_col_config("Stock") 
