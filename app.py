@@ -124,7 +124,7 @@ STOCK_MAP = {
     "SANA": "Sana Biotech", "NIO": "NIO Inc"
 }
 
-# --- MERGED & DEDUPED CRYPTO LIST (200+ COINS) ---
+# --- CRYPTO LIST (200+) ---
 CRYPTO_MAP = {
     "2Z-USD": "DoubleZero",    "A7A5-USD": "A7A5",    "AAVE-USD": "Aave",    "AB-USD": "AB",
     "ADA-USD": "Cardano",    "AERO-USD": "Aerodrome Finance",    "ALGO-USD": "Algorand",    "APE-USD": "ApeCoin",
@@ -239,16 +239,13 @@ def get_gambit_signal(df):
 def fetch_single_ticker(args):
     ticker, name, asset_type, spy_subset, is_market_closed_today = args
     try:
-        # Fetch Data (1y is plenty)
         df = yf.Ticker(ticker).history(period="1y")
         
         if df is None or df.empty: return None
         if len(df) < 50: return None
         
-        # Yahoo data logic
         target_df = df.copy()
         
-        # If market is Open, last row is live. Drop it for confirmed daily close.
         if asset_type != "Crypto" and not is_market_closed_today:
              target_df = target_df.iloc[:-1]
 
@@ -261,6 +258,7 @@ def fetch_single_ticker(args):
         gambit_buy = rev_up_series.iloc[-1]
         gambit_sell = rev_down_series.iloc[-1]
         
+        # --- CLEAN TEXT (NO NUMBERS) ---
         trend_status = "Neutral ⚪"
         if today_bull: trend_status = "Bullish 🟢"
         elif today_bear: trend_status = "Bearish 🔴"
@@ -269,6 +267,7 @@ def fetch_single_ticker(args):
         if gambit_buy: gambit_status = "🟢 BUY (Reversal)"
         elif gambit_sell: gambit_status = "🔴 SELL (Pivot)"
         
+        # --- CLEAN CONFLUENCE TEXT ---
         confluence_text = "⚪ Neutral"
         
         if today_bull:
@@ -310,11 +309,12 @@ def fetch_single_ticker(args):
             
             ratio_df = pd.DataFrame({'ratio': ratio})
             r_bull, r_bear = get_ae_signal(ratio_df, 'ratio')
+            
+            # --- CLEAN BENCHMARK TEXT ---
             rs_status = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
         else:
             rs_status = "—"
 
-        # Link logic
         clean_ticker = ticker.replace("=F", "")
         tv_link_ticker = ticker
         if asset_type == "Crypto": 
@@ -345,7 +345,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     market_cutoff_hour = 16
     is_market_closed_today = now_ny.hour >= market_cutoff_hour
 
-    # Fetch Benchmark once
     bench_ticker = yf.Ticker(benchmark_symbol)
     bench_hist = bench_ticker.history(period="1y")
     
@@ -360,17 +359,46 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         tasks.append((ticker, name, asset_type, spy_subset, is_market_closed_today))
     
     results = []
-    # --- TURBO MODE: 20 WORKERS ---
     with ThreadPoolExecutor(max_workers=20) as executor:
         processed = list(executor.map(fetch_single_ticker, tasks))
     results = [p for p in processed if p is not None]
 
-    return pd.DataFrame(results), display_date
+    # --- CATEGORICAL SORTING LOGIC APPLIED TO ALL 3 COLUMNS ---
+    df = pd.DataFrame(results)
+    
+    if not df.empty:
+        # 1. Define Categories for Trend (Used for USD and Benchmark)
+        trend_cats = ["Bullish 🟢", "Neutral ⚪", "Bearish 🔴", "—"] # — added for missing data
+        
+        # Apply to Trend (vs USD)
+        if 'Trend (vs USD)' in df.columns:
+             df['Trend (vs USD)'] = pd.Categorical(df['Trend (vs USD)'], categories=trend_cats, ordered=True)
+        
+        # Apply to Benchmark Trend
+        bench_col = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
+        if bench_col in df.columns:
+             df[bench_col] = pd.Categorical(df[bench_col], categories=trend_cats, ordered=True)
+             
+        # 2. Define Categories for Confluence (Best to Worst)
+        confluence_cats = [
+            "🚀 STRONG BUY",
+            "📈 Trending Up",
+            "🔥 REVERSAL",
+            "⚪ Neutral",
+            "⚠️ PULLBACK",
+            "📉 Trending Down",
+            "⬇️ STRONG SELL"
+        ]
+        # Apply to Confluence
+        if 'Confluence' in df.columns:
+            df['Confluence'] = pd.Categorical(df['Confluence'], categories=confluence_cats, ordered=True)
+
+    return df, display_date
 
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v2.2") 
+    else: st.title("confluence.bot v2.4") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
@@ -381,7 +409,7 @@ st.write("")
 st.markdown("""<style>.stDataFrame { width: 100%; }</style>""", unsafe_allow_html=True)
 
 def highlight_rows(row):
-    val = row.get('Confluence', '')
+    val = str(row.get('Confluence', '')) 
     if "STRONG BUY" in val: return ['background-color: #06402B'] * len(row) 
     if "STRONG SELL" in val: return ['background-color: #4a0f0f'] * len(row) 
     if "REVERSAL" in val: return ['background-color: #5c4d00'] * len(row) 
