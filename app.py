@@ -161,3 +161,4 @@ with t_comm:
     st.caption(f"📅 Daily Close: {d_m}")
     draw(df_m, "Trend (vs SPY)")
  
+# Sync nudge
