@@ -184,7 +184,7 @@ def get_gambit_signal(df):
 
     prev_close = df['Close'].shift(1)
     prev_l = l_series.shift(1)
-    is_ucru = (prev_close < prev_l) & (df['Close'] > l_series) & (df['Close'] < h_series) & (df['Close'] > df['Open'])
+    is_ucru = (prev_close < prev_l) & (df['Close'] > l_series) & (df['Close'] < h_series) & (df['Close'] > df['open'])
     rev_up = is_ucru.shift(1) & (df['Close'] > df['High'].shift(1))
     is_ur = (df['Close'] < h_series) & (df['Close'] < prev_close) & (df['Close'].shift(2) > h_series.shift(2))
     return rev_up, is_ur
@@ -200,7 +200,11 @@ def fetch_single_ticker(args):
         
         target_df = df.copy()
         
-        if asset_type != "Crypto" and not is_market_closed_today:
+        # --- MARKET OPEN LOGIC ---
+        # If Stock market is Open, last row is live (drop it).
+        # Crypto is 24/7, so last row is ALWAYS live (drop it).
+        # This ensures we only see CONFIRMED Daily Closes for everything.
+        if (asset_type == "Crypto") or (not is_market_closed_today):
              target_df = target_df.iloc[:-1]
 
         # --- SIGNALS ---
@@ -298,11 +302,15 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
     bench_ticker = yf.Ticker(benchmark_symbol)
     bench_hist = bench_ticker.history(period="1y")
     
-    display_date = bench_hist.index[-1].strftime('%b %d, %Y')
-    
-    spy_subset = bench_hist.copy()
-    if asset_type != "Crypto" and not is_market_closed_today:
-        spy_subset = spy_subset.iloc[:-1]
+    # --- DISPLAY DATE FIX ---
+    # Since we are forcing a drop of the last row for Crypto, the "Date" should reflect the CLOSED candle.
+    # If market is open (or Crypto), we used iloc[:-1], so the date is index[-2].
+    if (asset_type == "Crypto") or (not is_market_closed_today):
+         display_date = bench_hist.index[-2].strftime('%b %d, %Y')
+         spy_subset = bench_hist.iloc[:-1]
+    else:
+         display_date = bench_hist.index[-1].strftime('%b %d, %Y')
+         spy_subset = bench_hist.copy()
 
     tasks = []
     for ticker, name in tickers_map.items():
@@ -336,7 +344,6 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
         ]
         if 'Confluence' in df.columns:
             df['Confluence'] = pd.Categorical(df['Confluence'], categories=confluence_cats, ordered=True)
-            # --- AUTO SORT HERE: Sort by Confluence by default ---
             df = df.sort_values(by='Confluence')
 
     return df, display_date
@@ -344,7 +351,7 @@ def scan_market(tickers_map, benchmark_symbol, asset_type="Stock"):
 col_left, col_right = st.columns([3, 1])
 with col_left:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v3.1") 
+    else: st.title("confluence.bot v3.2") 
 with col_right:
     st.markdown("""<div class="status-container"><div class="status-text">● Turbo Online</div></div>""", unsafe_allow_html=True)
     if st.button("Refresh Data", key="refresh_top"):
@@ -367,7 +374,6 @@ def highlight_rows(row):
 tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "⚡ NEW FLIPS"])
 
 def get_col_config(asset_type):
-    # --- NO TOOLTIPS ---
     bench_name = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
     return {
         "is_flip": None, 
