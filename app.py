@@ -325,44 +325,33 @@ tab_stocks, tab_coins, tab_commodities, tab_flips = st.tabs(["STOCKS 📈", "COI
 
 # --- DEFINE COLUMN CONFIG WITH TOOLTIPS ---
 def get_col_config(asset_type):
-    # Dynamic tooltip for the benchmark column
     bench_name = "Trend (vs BTC)" if asset_type == "Crypto" else "Trend (vs SPY)"
-    
     return {
         "is_flip": None, 
         "flip_type": None, 
         "score": None,
         "Action": st.column_config.LinkColumn("Chart"),
         
-        # --- TOOLTIPS ADDED HERE ---
-        "Trend (vs USD)": st.column_config.TextColumn(
-            "Trend (vs USD)",
-            help="The asset's absolute price trend. \n🟢 Bullish: Price > Moving Averages\n🔴 Bearish: Price < Moving Averages"
-        ),
-        bench_name: st.column_config.TextColumn(
-            bench_name,
-            help=f"Relative Strength vs {bench_name.split()[-1]}.\n🟢 Bullish: Outperforming the market.\n🔴 Bearish: Underperforming the market."
-        ),
-        "Gambit Reversals": st.column_config.TextColumn(
-            "Gambit Reversals",
-            help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today."
-        )
+        "Trend (vs USD)": st.column_config.TextColumn("Trend (vs USD)", help="The asset's absolute price trend. \n🟢 Bullish: Price > Moving Averages\n🔴 Bearish: Price < Moving Averages"),
+        bench_name: st.column_config.TextColumn(bench_name, help=f"Relative Strength vs {bench_name.split()[-1]}.\n🟢 Bullish: Outperforming the market.\n🔴 Bearish: Underperforming the market."),
+        "Gambit Reversals": st.column_config.TextColumn("Gambit Reversals", help="✨ REVERSAL SIGNALS:\n🟢 BUY: Price dipped below support & recovered (Buy the Dip).\n🔴 SELL: Price hit resistance ceiling & rejected.\n—: No signal today.")
     }
 
+# --- IMPORTANT CHANGE: use_container_width=False (COMPACT VIEW) ---
 with tab_stocks:
     df_stocks, stock_date = scan_market(STOCK_MAP, "SPY", "Stock")
     st.caption(f"📅 Data Date: **{stock_date}**")
-    st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df_stocks.style.apply(highlight_rows, axis=1), column_config=get_col_config("Stock"), hide_index=True, use_container_width=False, height=1200)
 
 with tab_coins:
     df_crypto, crypto_date = scan_market(CRYPTO_MAP, "BTCUSDT", "Crypto")
     st.caption(f"📅 Data Date: **{crypto_date}**")
-    st.dataframe(df_crypto.style.apply(highlight_rows, axis=1), column_config=get_col_config("Crypto"), hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df_crypto.style.apply(highlight_rows, axis=1), column_config=get_col_config("Crypto"), hide_index=True, use_container_width=False, height=1200)
 
 with tab_commodities:
     df_comm, comm_date = scan_market(COMMODITY_MAP, "SPY", "Commodity")
     st.caption(f"📅 Data Date: **{comm_date}**")
-    st.dataframe(df_comm.style.apply(highlight_rows, axis=1), column_config=get_col_config("Commodity"), hide_index=True, use_container_width=True, height=1200)
+    st.dataframe(df_comm.style.apply(highlight_rows, axis=1), column_config=get_col_config("Commodity"), hide_index=True, use_container_width=False, height=1200)
 
 with tab_flips:
     st.caption("⚡ Assets that triggered a Signal or Flip TODAY")
@@ -376,14 +365,13 @@ with tab_flips:
         cols = ['Company', 'Ticker', 'flip_type', 'Trend (vs USD)', 'Gambit Reversals', 'Price', 'Action', 'score']
         cols = [c for c in cols if c in df_flips.columns]
         
-        # Merge tooltips with Flips-specific config
-        flips_config = get_col_config("Stock") # Default to Stock tooltip for shared columns
+        flips_config = get_col_config("Stock") 
         flips_config["flip_type"] = st.column_config.TextColumn("Trigger Event", help="What caused this asset to appear here (e.g., Trend Flip or Gambit Signal).")
         
         st.dataframe(
             df_flips[cols].style.apply(highlight_rows, axis=1),
             column_config=flips_config,
-            hide_index=True, use_container_width=True
+            hide_index=True, use_container_width=False
         )
     else:
         st.info("No trend flips or gambit signals detected today.")
