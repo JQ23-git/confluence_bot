@@ -15,12 +15,50 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-    .stApp { background-color: #0e1117; }
-    button[data-baseweb="tab"] div p { font-size: 18px !important; font-weight: 700 !important; }
-    .status-container { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; height: 100%; padding-top: 15px; }
-    .status-text { color: #22d3ee; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; }
-    div.stButton > button { border: 1px solid #333; background-color: #000; color: #aaa; border-radius: 6px; }
+    
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+    
+    .stApp {
+        background-color: #0e1117;
+    }
+    
+    /* --- TAB STYLING --- */
+    button[data-baseweb="tab"] div p {
+        font-size: 18px !important;    
+        font-weight: 700 !important;   
+    }
+
+    /* --- TABLE HEIGHT FIX --- */
+    /* This forces the dataframe to take up more vertical space */
+    .stDataFrame {
+        height: auto !important;
+        min-height: 800px !important;
+    }
+    
+    .status-container {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        height: 100%;
+        padding-top: 15px; 
+    }
+    .status-text {
+        color: #22d3ee; 
+        font-size: 0.85rem; 
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    
+    div.stButton > button {
+        border: 1px solid #333;
+        background-color: #000;
+        color: #aaa;
+        border-radius: 6px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -113,14 +151,18 @@ def scan(t_map, bench, a_type):
 
 # --- 5. UI ---
 col1, col2 = st.columns([3, 1])
-with col1: st.title("confluence.bot v3.4")
+with col1:
+    if os.path.exists("logo.png"): st.image("logo.png", width=350)
+    else: st.title("confluence.bot v3.5")
 with col2: 
+    st.markdown('<div class="status-container"><div class="status-text">● Turbo Online</div></div>', unsafe_allow_html=True)
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
 
 t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
 def draw(df):
-    st.dataframe(df, column_config={"Action": st.column_config.LinkColumn("Chart")}, hide_index=True, use_container_width=True)
+    # Fixed height 1200 ensures it is very long and accounts for all stocks
+    st.dataframe(df, column_config={"Action": st.column_config.LinkColumn("Chart")}, hide_index=True, use_container_width=True, height=1200)
 
 with t_stocks:
     df_s, d_s = scan(STOCK_MAP, "SPY", "Stock")
@@ -128,12 +170,17 @@ with t_stocks:
     sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     with sub[0]: draw(df_s)
     for i, cat in enumerate(STOCK_GROUPS.keys()):
-        with sub[i+1]: draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])])
+        with sub[i+1]:
+            # Filter subset
+            subset = df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])]
+            draw(subset)
 
 with t_coins:
     df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
+    st.caption(f"Data Date: {d_c}")
     draw(df_c)
 
 with t_comm:
     df_m, d_m = scan(COMMODITY_MAP, "SPY", "Comm")
+    st.caption(f"Data Date: {d_m}")
     draw(df_m)
