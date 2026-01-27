@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import pytz
 import os
 import numpy as np
@@ -34,11 +34,18 @@ STOCK_GROUPS = {
 STOCK_MAP = {t: t for cat in STOCK_GROUPS.values() for t in cat}
 
 def get_crypto_map():
+    c_map = {}
     if os.path.exists('top200_non_stable_non_wrapped.csv'):
         df_csv = pd.read_csv('top200_non_stable_non_wrapped.csv')
-        if 'Ticker' in df_csv.columns:
-            return {f"{str(row['Ticker']).strip()}-USD": str(row['Name']).strip() for _, row in df_csv.iterrows()}
-    return {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum"}
+        for _, row in df_csv.iterrows():
+            t = str(row['Ticker']).strip()
+            n = str(row['Name']).strip()
+            # Smart Ticker: Don't double up on -USD
+            yf_ticker = t if t.endswith("-USD") else f"{t}-USD"
+            c_map[yf_ticker] = n
+    if not c_map:
+        c_map = {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum"}
+    return c_map
 
 CRYPTO_MAP = get_crypto_map()
 COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas", "ZC=F": "Corn"}
@@ -64,11 +71,9 @@ def fetch_ticker(args):
     ticker, name, asset_type, spy_sub, now_cst = args
     try:
         df = yf.Ticker(ticker).history(period="1y")
-        if df is None or len(df) < 50: return None
+        if df is None or len(df) < 20: return None
         
-        # --- THE 5PM CST RULE ---
-        # If it's before 5PM CST, the current day's candle is live/unreliable.
-        # Yahoo's 'today' candle starts at 00:00 UTC. 
+        # Enforce 5PM CST rule: Drop last row if we haven't hit 5PM CST today
         if now_cst.time() < time(17, 0):
             df = df.iloc[:-1]
 
@@ -82,13 +87,16 @@ def fetch_ticker(args):
         if buy.iloc[-1]: g_stat = "🟢 BUY (Reversal)"
         elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
         
-        if bull.iloc[-1]: c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
-        elif bear.iloc[-1]: c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
-        elif buy.iloc[-1]: c_stat = "🔥 REVERSAL"
+        if bull.iloc[-1]:
+            c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
+        elif bear.iloc[-1]:
+            c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
+        elif buy.iloc[-1]:
+            c_stat = "🔥 REVERSAL"
 
         common = df.index.intersection(spy_sub.index)
         rs_stat = "—"
-        if len(common) > 20:
+        if len(common) > 10:
             ratio = df.loc[common, 'Close'] / spy_sub.loc[common, 'Close']
             r_bull, r_bear = get_ae_signal(pd.DataFrame({'ratio': ratio}), 'ratio')
             rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
@@ -98,15 +106,13 @@ def fetch_ticker(args):
                 "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"}
     except: return None
 
-from datetime import time
-
 @st.cache_data(ttl=3600)
 def scan(t_map, bench, a_type):
     tz_cst = pytz.timezone('US/Central')
     now_cst = datetime.now(tz_cst)
-    
     spy = yf.Ticker(bench).history(period="1y")
-    # Apply 5PM rule to benchmark to keep dates aligned
+    
+    # Apply 5PM rule to benchmark
     spy_sub = spy.iloc[:-1] if now_cst.time() < time(17, 0) else spy
 
     tasks = [(t, n, a_type, spy_sub, now_cst) for t, n in t_map.items()]
@@ -124,7 +130,7 @@ def scan(t_map, bench, a_type):
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v4.4")
+    else: st.title("confluence.bot v4.5")
 with col2:
     st.markdown('<div class="status-container"><div class="status-text">● Turbo Online</div></div>', unsafe_allow_html=True)
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
