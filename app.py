@@ -4,17 +4,15 @@ import yfinance as yf
 from datetime import datetime
 import pytz
 import os
+import time
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
 
 # --- 1. CONFIG ---
 st.set_page_config(layout="wide", page_title="confluence.bot")
 
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .block-container { padding-top: 1rem; padding-bottom: 1rem; }
     .stApp { background-color: #0e1117; color: #ffffff; }
     button[data-baseweb="tab"] div p { font-size: 18px !important; font-weight: 700 !important; color: #ffffff !important; }
@@ -32,14 +30,20 @@ STOCK_GROUPS = {
 }
 STOCK_MAP = {t: t for cat in STOCK_GROUPS.values() for t in cat}
 
-CRYPTO_MAP = {
-    "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "BNB-USD": "BNB", "XRP-USD": "XRP", "SOL-USD": "Solana",
-    "ADA-USD": "Cardano", "DOGE-USD": "Dogecoin", "TRX-USD": "TRON", "LINK-USD": "Chainlink", "AVAX-USD": "Avalanche",
-    "SHIB-USD": "Shiba Inu", "DOT-USD": "Polkadot", "LTC-USD": "Litecoin", "UNI-USD": "Uniswap", "PEPE-USD": "Pepe",
-    "NEAR-USD": "NEAR", "APT-USD": "Aptos", "SUI-USD": "Sui", "HBAR-USD": "Hedera", "STX-USD": "Stacks",
-    "RENDER-USD": "Render", "FET-USD": "FET", "FIL-USD": "Filecoin", "AAVE-USD": "Aave", "OP-USD": "Optimism"
-}
+def get_crypto_map():
+    c_map = {}
+    if os.path.exists('top200_non_stable_non_wrapped.csv'):
+        try:
+            df_csv = pd.read_csv('top200_non_stable_non_wrapped.csv')
+            for _, row in df_csv.iterrows():
+                t = str(row['Ticker']).strip()
+                yf_t = t if "-USD" in t else f"{t}-USD"
+                c_map[yf_t] = str(row['Name']).strip()
+        except: pass
+    if not c_map: c_map = {"BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana"}
+    return c_map
 
+CRYPTO_MAP = get_crypto_map()
 COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas"}
 
 # --- 3. INDICATORS ---
@@ -58,44 +62,41 @@ def get_gambit_signal(df):
     return rev_up, rev_down
 
 # --- 4. ENGINE ---
-def fetch_ticker(args):
-    ticker, name, asset_type, spy_sub = args
+def fetch_ticker(ticker, name, spy_sub):
     try:
         df = yf.Ticker(ticker).history(period="1y")
         if df is None or len(df) < 10: return None
-        df = df.iloc[:-1] # Confirmed Day Only
-
+        df = df.iloc[:-1] # Confirmed Jan 26 Day
         bull, bear = get_ae_signal(df)
         buy, sell = get_gambit_signal(df)
         t_stat = "Neutral ⚪"; g_stat = "—"; c_stat = "⚪ Neutral"
-        
         if bull.iloc[-1]: t_stat = "Bullish 🟢"
         elif bear.iloc[-1]: t_stat = "Bearish 🔴"
         if buy.iloc[-1]: g_stat = "🟢 BUY (Reversal)"
         elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
-        
         if bull.iloc[-1]: c_stat = "🚀 STRONG BUY" if buy.iloc[-1] else "📈 Trending Up"
         elif bear.iloc[-1]: c_stat = "⬇️ STRONG SELL" if sell.iloc[-1] else "📉 Trending Down"
         elif buy.iloc[-1]: c_stat = "🔥 REVERSAL"
-
         common = df.index.intersection(spy_sub.index)
         rs_stat = "—"
         if len(common) > 5:
             ratio = df.loc[common, 'Close'] / spy_sub.loc[common, 'Close']
             r_bull, r_bear = get_ae_signal(pd.DataFrame({'ratio': ratio}))
             rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
-            
         return {"Company": name, "Ticker": ticker.replace("-USD", ""), "Price": f"${df['Close'].iloc[-1]:.2f}",
                 "Trend (vs USD)": t_stat, "BenchTrend": rs_stat, "Gambit Reversals": g_stat, "Confluence": c_stat,
                 "Action": f"https://www.tradingview.com/chart/?symbol={ticker}"}
     except: return None
 
 @st.cache_data(ttl=3600)
-def scan(t_map, bench, a_type):
+def scan(t_map, bench):
     spy = yf.Ticker(bench).history(period="1y").iloc[:-1]
-    tasks = [(t, n, a_type, spy) for t, n in t_map.items()]
-    with ThreadPoolExecutor(max_workers=30) as exe:
-        results = [r for r in list(exe.map(fetch_ticker, tasks)) if r]
+    results = []
+    # Sequential load to prevent Rate Limiting
+    for t, n in t_map.items():
+        res = fetch_ticker(t, n, spy)
+        if res: results.append(res)
+        time.sleep(0.05) # Tiny breath between requests
     df = pd.DataFrame(results)
     if not df.empty:
         cats = ["🚀 STRONG BUY", "🔥 REVERSAL", "📈 Trending Up", "⚪ Neutral", "📉 Trending Down", "⬇️ STRONG SELL"]
@@ -107,14 +108,14 @@ def scan(t_map, bench, a_type):
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"): st.image("logo.png", width=350)
-    else: st.title("confluence.bot v4.7")
+    else: st.title("confluence.bot")
 with col2:
     if st.button("Refresh"): st.cache_data.clear(); st.rerun()
 
 t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
 
 def draw(df, b_name):
-    if df is None or df.empty: st.warning("No data found."); return
+    if df is None or df.empty: st.warning("Fetching data..."); return
     buy_c, sell_c, rev_c, t_up, t_down = "#06402B", "#4a0f0f", "#5c4d00", "#1b4d3e", "#4d1b1b"
     def highlight(row):
         val = str(row.get('Confluence', ''))
@@ -129,7 +130,7 @@ def draw(df, b_name):
                  hide_index=True, use_container_width=True, height=1200)
 
 with t_stocks:
-    df_s = scan(STOCK_MAP, "SPY", "Stock")
+    df_s = scan(STOCK_MAP, "SPY")
     st.caption("📅 Confirmed Close: Jan 26, 2025")
     sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
     with sub[0]: draw(df_s, "Trend (vs SPY)")
@@ -137,11 +138,11 @@ with t_stocks:
         with sub[i+1]: draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])], "Trend (vs SPY)")
 
 with t_coins:
-    df_c = scan(CRYPTO_MAP, "BTC-USD", "Crypto")
-    st.caption(f"📅 Confirmed Close: Jan 26, 2025")
+    df_c = scan(CRYPTO_MAP, "BTC-USD")
+    st.caption(f"📅 Confirmed Close: Jan 26, 2025 | Coins: {len(df_c)}")
     draw(df_c, "Trend (vs BTC)")
 
 with t_comm:
-    df_m = scan(COMMODITY_MAP, "SPY", "Comm")
+    df_m = scan(COMMODITY_MAP, "SPY")
     st.caption("📅 Confirmed Close: Jan 26, 2025")
     draw(df_m, "Trend (vs SPY)")
