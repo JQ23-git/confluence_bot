@@ -7,6 +7,7 @@ import os
 import numpy as np
 import time as py_time
 import logging
+import sqlite3
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("confluence_bot")
@@ -25,16 +26,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. CONSTANTS ---
-# AE signal periods
-AE_FAST   = 16
-AE_MID    = 26
-AE_SLOW   = 34
+AE_FAST      = 16
+AE_MID       = 26
+AE_SLOW      = 34
 
 # Gambit: span=17 with a 3.5x multiplier on alpha (intentional design choice)
 GAMBIT_SPAN  = 17
 GAMBIT_ALPHA = 3.5 / GAMBIT_SPAN  # ≈ 0.206 — faster reaction than standard span EWM
 
-CACHE_TTL = 3600  # seconds
+CACHE_TTL    = 3600   # seconds
+COIN_WORKERS = 12     # higher parallelism for 100+ coin scans
+DB_PATH      = "signals.db"
 
 # TradingView symbol overrides for tickers that need exchange prefixes
 TV_SYMBOL_MAP = {
@@ -76,7 +78,58 @@ def get_crypto_map():
 CRYPTO_MAP    = get_crypto_map()
 COMMODITY_MAP = {"GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas"}
 
-# --- 4. INDICATORS ---
+# --- 4. SIGNAL HISTORY (SQLite) ---
+def _init_db():
+    con = sqlite3.connect(DB_PATH)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS signal_history (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts         TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            ticker     TEXT NOT NULL,
+            name       TEXT NOT NULL,
+            confluence TEXT NOT NULL,
+            score      INTEGER NOT NULL
+        )
+    """)
+    con.commit()
+    con.close()
+
+_init_db()
+
+def log_signals(df: pd.DataFrame, asset_type: str):
+    """Persist current scan snapshot to SQLite (once per session per asset type)."""
+    if df is None or df.empty:
+        return
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    rows = [
+        (ts, asset_type, str(row.get("Ticker", "")),
+         str(row.get("Company", "")), str(row.get("Confluence", "")),
+         int(row.get("_score", 0)))
+        for _, row in df.iterrows()
+    ]
+    con = sqlite3.connect(DB_PATH)
+    con.executemany(
+        "INSERT INTO signal_history (ts, asset_type, ticker, name, confluence, score) VALUES (?,?,?,?,?,?)",
+        rows
+    )
+    con.commit()
+    con.close()
+
+@st.cache_data(ttl=300)
+def get_signal_history(limit: int = 2000) -> pd.DataFrame:
+    if not os.path.exists(DB_PATH):
+        return pd.DataFrame()
+    con = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query(
+        "SELECT ts, asset_type, ticker, name, confluence, score "
+        "FROM signal_history ORDER BY ts DESC LIMIT ?",
+        con, params=(limit,)
+    )
+    con.close()
+    return df
+
+# --- 5. INDICATORS ---
 def calculate_smma(series, length):
     return series.ewm(alpha=1 / length, adjust=False).mean()
 
@@ -105,14 +158,14 @@ def get_gambit_signal(df):
     rev_down = (df['Close'].shift(1) > h_s.shift(1)) & (df['Close'] < h_s) & (df['Close'] < df['Open'])
     return rev_up, rev_down
 
-# --- 5. ENGINE ---
+# --- 6. ENGINE ---
 def _tv_url(ticker):
     symbol = TV_SYMBOL_MAP.get(ticker, ticker)
     return f"https://www.tradingview.com/chart/?symbol={symbol}"
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-APP_VERSION = "v5.1"   # visible in UI — confirms this code is deployed
+APP_VERSION = "v5.2"
 
 def _fetch_one(sym, period="1y", retries=3):
     """Fetch OHLCV for a single ticker via Ticker.history(); retry on failure."""
@@ -130,7 +183,7 @@ def _fetch_one(sym, period="1y", retries=3):
     return sym, pd.DataFrame()
 
 def _fetch_all(symbols, period="1y", max_workers=4):
-    """Fetch all symbols with a small thread pool to avoid rate-limiting."""
+    """Fetch all symbols with a thread pool to avoid rate-limiting."""
     result = {}
     with ThreadPoolExecutor(max_workers=max_workers) as exe:
         futures = {exe.submit(_fetch_one, sym, period): sym for sym in symbols}
@@ -142,12 +195,12 @@ def _fetch_all(symbols, period="1y", max_workers=4):
     return result
 
 @st.cache_data(ttl=CACHE_TTL)
-def scan(t_map, bench):
+def scan(t_map, bench, max_workers=4):
     tz_cst  = pytz.timezone('US/Central')
     now_cst = datetime.now(tz_cst)
 
     all_syms = list(dict.fromkeys([bench] + list(t_map.keys())))
-    dfs = _fetch_all(all_syms)
+    dfs = _fetch_all(all_syms, max_workers=max_workers)
 
     bench_df = dfs.get(bench, pd.DataFrame())
     if bench_df.empty or len(bench_df) < AE_SLOW:
@@ -191,17 +244,31 @@ def scan(t_map, bench):
         elif buy.iloc[-1]:
             c_stat = "🔥 REVERSAL"
 
-        rs_stat = "—"
+        ae_score = 1 if bull.iloc[-1] else (-1 if bear.iloc[-1] else 0)
+        g_score  = 1 if buy.iloc[-1]  else (-1 if sell.iloc[-1]  else 0)
+
+        rs_stat  = "—"
+        rs_score = 0
         common = df.index.intersection(spy_sub.index)
         if len(common) > AE_SLOW:
             ratio = df.loc[common, 'Close'] / spy_sub.loc[common, 'Close']
             r_bull, r_bear = get_ae_signal_ratio(ratio)
-            rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
+            if r_bull.iloc[-1]:
+                rs_stat, rs_score = "Bullish 🟢", 1
+            elif r_bear.iloc[-1]:
+                rs_stat, rs_score = "Bearish 🔴", -1
+            else:
+                rs_stat = "Neutral ⚪"
+
+        score = ae_score + g_score + rs_score
+        score_fmt = f"+{score}" if score > 0 else str(score)
 
         results.append({
             "Company":          name,
             "Ticker":           ticker.replace("-USD", ""),
             "Price":            f"${df['Close'].iloc[-1]:.2f}",
+            "Score":            score_fmt,
+            "_score":           score,
             "Trend (vs USD)":   t_stat,
             "BenchTrend":       rs_stat,
             "Gambit Reversals": g_stat,
@@ -217,7 +284,37 @@ def scan(t_map, bench):
     out = out.sort_values('Confluence')
     return out, confirmed_date
 
-# --- 6. UI ---
+# --- 7. UI HELPERS ---
+def draw(df, b_name, filter_val="All"):
+    if df is None or df.empty:
+        st.warning("Market data unavailable.")
+        return
+
+    disp = df.copy()
+    if filter_val != "All":
+        disp = disp[disp['Confluence'].astype(str) == filter_val]
+
+    if disp.empty:
+        st.info(f"No assets currently showing '{filter_val}'.")
+        return
+
+    buy_c, sell_c, rev_c = "#06402B", "#4a0f0f", "#5c4d00"
+
+    def highlight(row):
+        val = str(row.get('Confluence', ''))
+        if "STRONG BUY"  in val: return [f'background-color: {buy_c}']  * len(row)
+        if "REVERSAL"    in val: return [f'background-color: {rev_c}']  * len(row)
+        if "STRONG SELL" in val: return [f'background-color: {sell_c}'] * len(row)
+        return [''] * len(row)
+
+    display_df = disp.drop(columns=['_score'], errors='ignore').rename(columns={"BenchTrend": b_name})
+    st.dataframe(
+        display_df.style.apply(highlight, axis=1),
+        column_config={"Action": st.column_config.LinkColumn("Chart")},
+        hide_index=True, use_container_width=True, height=1200
+    )
+
+# --- 8. HEADER ---
 col1, col2 = st.columns([3, 1])
 with col1:
     if os.path.exists("logo.png"):
@@ -230,58 +327,121 @@ with col2:
         st.cache_data.clear()
         st.rerun()
 
-t_stocks, t_coins, t_comm = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️"])
+t_stocks, t_coins, t_comm, t_hist = st.tabs(["STOCKS 📈", "COINS ₿", "COMMODITIES 🛢️", "HISTORY 📋"])
 
-def draw(df, b_name):
-    if df is None or df.empty:
-        st.warning("Market data unavailable.")
-        return
-    buy_c, sell_c, rev_c = "#06402B", "#4a0f0f", "#5c4d00"
-
-    def highlight(row):
-        val = str(row.get('Confluence', ''))
-        if "STRONG BUY" in val:  return [f'background-color: {buy_c}'] * len(row)
-        if "REVERSAL"   in val:  return [f'background-color: {rev_c}'] * len(row)
-        if "STRONG SELL" in val: return [f'background-color: {sell_c}'] * len(row)
-        return [''] * len(row)
-
-    st.dataframe(
-        df.rename(columns={"BenchTrend": b_name}).style.apply(highlight, axis=1),
-        column_config={"Action": st.column_config.LinkColumn("Chart")},
-        hide_index=True, use_container_width=True, height=1200
-    )
-
+# --- 9. STOCKS TAB ---
 with t_stocks:
     try:
         df_s, d_s = scan(STOCK_MAP, "SPY")
         st.caption(f"📅 Confirmed Close: {d_s}")
+        if not df_s.empty and "stocks_logged" not in st.session_state:
+            log_signals(df_s, "stocks")
+            st.session_state["stocks_logged"] = True
+
+        f_col, _ = st.columns([2, 8])
+        with f_col:
+            sf = st.selectbox("Filter", ["All"] + CONFLUENCE_ORDER, key="s_filter")
+
         sub = st.tabs(["📋 ALL"] + list(STOCK_GROUPS.keys()))
         with sub[0]:
-            draw(df_s, "Trend (vs SPY)")
+            draw(df_s, "Trend (vs SPY)", sf)
         for i, cat in enumerate(STOCK_GROUPS.keys()):
             with sub[i + 1]:
                 if df_s is not None and not df_s.empty and 'Ticker' in df_s.columns:
-                    draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])], "Trend (vs SPY)")
+                    draw(df_s[df_s['Ticker'].isin(STOCK_GROUPS[cat])], "Trend (vs SPY)", sf)
                 else:
                     st.info("Loading market data...")
     except Exception as e:
         logger.error("Stocks scan failed: %s", e)
         st.error("Could not load stock data. Try refreshing.")
 
+# --- 10. COINS TAB ---
 with t_coins:
     try:
-        df_c, d_c = scan(CRYPTO_MAP, "BTC-USD")
+        df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", max_workers=COIN_WORKERS)
         st.caption(f"📅 Daily Close: {d_c} | Coins Found: {len(df_c)}")
-        draw(df_c, "Trend (vs BTC)")
+        if not df_c.empty and "coins_logged" not in st.session_state:
+            log_signals(df_c, "coins")
+            st.session_state["coins_logged"] = True
+
+        f_col, _ = st.columns([2, 8])
+        with f_col:
+            cf = st.selectbox("Filter", ["All"] + CONFLUENCE_ORDER, key="c_filter")
+        draw(df_c, "Trend (vs BTC)", cf)
     except Exception as e:
         logger.error("Crypto scan failed: %s", e)
         st.error("Could not load crypto data. Try refreshing.")
 
+# --- 11. COMMODITIES TAB ---
 with t_comm:
     try:
         df_m, d_m = scan(COMMODITY_MAP, "SPY")
         st.caption(f"📅 Daily Close: {d_m} | Commodities Found: {len(df_m)}")
-        draw(df_m, "Trend (vs SPY)")
+        if not df_m.empty and "comm_logged" not in st.session_state:
+            log_signals(df_m, "commodities")
+            st.session_state["comm_logged"] = True
+
+        f_col, _ = st.columns([2, 8])
+        with f_col:
+            mf = st.selectbox("Filter", ["All"] + CONFLUENCE_ORDER, key="m_filter")
+        draw(df_m, "Trend (vs SPY)", mf)
     except Exception as e:
         logger.error("Commodities scan failed: %s", e)
         st.error("Could not load commodities data. Try refreshing.")
+
+# --- 12. HISTORY TAB ---
+with t_hist:
+    st.subheader("Signal History")
+    st.caption("Most recent signal snapshot per ticker, logged once per session.")
+
+    hist_df = get_signal_history()
+    if hist_df.empty:
+        st.info("No history yet — open each tab to trigger a scan.")
+    else:
+        # Latest signal per ticker (most recent timestamp first)
+        latest = (
+            hist_df
+            .drop_duplicates(subset=["ticker"], keep="first")
+            .copy()
+            .rename(columns={
+                "ts": "Last Seen (UTC)", "asset_type": "Type",
+                "ticker": "Ticker", "name": "Company",
+                "confluence": "Confluence", "score": "Score"
+            })
+        )
+        latest["Score"] = latest["Score"].apply(lambda x: f"+{x}" if int(x) > 0 else str(x))
+
+        h_col, _ = st.columns([2, 8])
+        with h_col:
+            hf = st.selectbox("Filter by signal", ["All"] + CONFLUENCE_ORDER, key="h_filter")
+        if hf != "All":
+            latest = latest[latest["Confluence"] == hf]
+
+        buy_c, sell_c, rev_c = "#06402B", "#4a0f0f", "#5c4d00"
+
+        def highlight_hist(row):
+            val = str(row.get("Confluence", ""))
+            if "STRONG BUY"  in val: return [f"background-color: {buy_c}"] * len(row)
+            if "REVERSAL"    in val: return [f"background-color: {rev_c}"] * len(row)
+            if "STRONG SELL" in val: return [f"background-color: {sell_c}"] * len(row)
+            return [""] * len(row)
+
+        st.dataframe(
+            latest.style.apply(highlight_hist, axis=1),
+            hide_index=True, use_container_width=True, height=600
+        )
+
+        st.divider()
+        st.caption("📈 Recent High-Signal Events (STRONG BUY / REVERSAL / STRONG SELL)")
+        alerts = hist_df[
+            hist_df["confluence"].str.contains("STRONG BUY|REVERSAL|STRONG SELL", na=False)
+        ].head(100).rename(columns={
+            "ts": "Time (UTC)", "asset_type": "Type",
+            "ticker": "Ticker", "name": "Company",
+            "confluence": "Signal", "score": "Score"
+        })
+        if not alerts.empty:
+            alerts["Score"] = alerts["Score"].apply(lambda x: f"+{x}" if int(x) > 0 else str(x))
+            st.dataframe(alerts, hide_index=True, use_container_width=True, height=400)
+        else:
+            st.info("No high-signal events logged yet.")

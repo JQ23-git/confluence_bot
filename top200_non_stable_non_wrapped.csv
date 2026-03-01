@@ -1,85 +1,102 @@
 Ticker,Name
 BTC-USD,Bitcoin
 ETH-USD,Ethereum
-BNB-USD,BNB
 XRP-USD,XRP
+BNB-USD,BNB
 SOL-USD,Solana
-TRX-USD,TRON
 DOGE-USD,Dogecoin
 ADA-USD,Cardano
-BCH-USD,Bitcoin Cash
-XMR-USD,Monero
-LEO-USD,LEO Token
-LINK-USD,Chainlink
-XLM-USD,Stellar
-ZEC-USD,Zcash
-LTC-USD,Litecoin
+TRX-USD,TRON
 AVAX-USD,Avalanche
+TON-USD,Toncoin
+LINK-USD,Chainlink
 SHIB-USD,Shiba Inu
+XLM-USD,Stellar
+SUI-USD,Sui
 HBAR-USD,Hedera
-PYUSD-USD,PayPal USD
-CRO-USD,Cronos
-RAIN-USD,Rain
+BCH-USD,Bitcoin Cash
+LTC-USD,Litecoin
 DOT-USD,Polkadot
-MNT-USD,Mantle
-BGB-USD,Bitget Token
-TAO-USD,Bittensor
-AAVE-USD,Aave
-OKB-USD,OKB
 NEAR-USD,NEAR Protocol
+UNI-USD,Uniswap
+APT-USD,Aptos
 ICP-USD,Internet Computer
+PEPE-USD,Pepe
+TAO-USD,Bittensor
 ETC-USD,Ethereum Classic
-ONDO-USD,Ondo
-MYX-USD,MYX Finance
-SKY-USD,Sky
-PI-USD,Pi Network
-KCS-USD,KuCoin Token
-RIVER-USD,River
-ENA-USD,Ethena
-RLUSD-USD,Ripple USD
-WLD-USD,Worldcoin
-GT-USD,GateToken
-PUMP-USD,Pump.fun
-ATOM-USD,Cosmos
 KAS-USD,Kaspa
-ALGO-USD,Algorand
-NIGHT-USD,Midnight
-FBTC-USD,Function
-RENDER-USD,Render
 FIL-USD,Filecoin
-QNT-USD,Quant
+RENDER-USD,Render
 VET-USD,VeChain
-DASH-USD,Dash
-BONK-USD,Bonk
-IP-USD,Story
-XDC-USD,XDC Network
-SEI-USD,Sei
-VBTC-USD,Venus BTC
-CAKE-USD,PancakeSwap
-NEXO-USD,Nexo
-BDX-USD,BelDex
-XTZ-USD,Tezos
-tBTC-USD,tBTC
-CHZ-USD,Chiliz
-OP-USD,Optimism
+AAVE-USD,Aave
 STX-USD,Stacks
-VIRTUAL-USD,Virtuals Protocol
-FET-USD,Artificial Superintelligence
-CRV-USD,Curve DAO Token
-GHO-USD,GHO
-FTN-USD,Fasttoken
-LIT-USD,Lighter
-IMX-USD,Immutable
-KAIA-USD,Kaia
+OP-USD,Optimism
+ARB-USD,Arbitrum
+ATOM-USD,Cosmos
+MKR-USD,Maker
 INJ-USD,Injective
+XMR-USD,Monero
+FET-USD,Artificial Superintelligence Alliance
+SEI-USD,Sei
+WIF-USD,dogwifhat
+IMX-USD,Immutable
+AR-USD,Arweave
 LDO-USD,Lido DAO
-AERO-USD,Aerodrome Finance
-2Z-USD,DoubleZero
-AB-USD,Arma The Battle Ground
+BONK-USD,Bonk
+RUNE-USD,THORChain
+EGLD-USD,MultiversX
+GRT-USD,The Graph
+CRO-USD,Cronos
+ALGO-USD,Algorand
+GALA-USD,Gala
 AXS-USD,Axie Infinity
-BTT-USD,BitTorrent(New)
-FLOKI-USD,FLOKI
-H-USD,Humanity Protocol
-JST-USD,JUST
-PIPPIN-USD,pippin
+STRK-USD,Starknet
+S-USD,Sonic
+MINA-USD,Mina Protocol
+ZEC-USD,Zcash
+JASMY-USD,JasmyCoin
+FLOW-USD,Flow
+ROSE-USD,Oasis Network
+CFX-USD,Conflux
+ZIL-USD,Zilliqa
+OCEAN-USD,Ocean Protocol
+CHZ-USD,Chiliz
+SAND-USD,The Sandbox
+MANA-USD,Decentraland
+CRV-USD,Curve DAO Token
+ENS-USD,Ethereum Name Service
+RPL-USD,Rocket Pool
+SNX-USD,Synthetix
+COMP-USD,Compound
+1INCH-USD,1inch Network
+SUSHI-USD,SushiSwap
+BAT-USD,Basic Attention Token
+ANKR-USD,Ankr
+ENJ-USD,Enjin Coin
+CELO-USD,Celo
+XTZ-USD,Tezos
+ZRX-USD,0x Protocol
+IOTA-USD,IOTA
+SKL-USD,SKALE
+KAVA-USD,Kava
+BLUR-USD,Blur
+WLD-USD,Worldcoin
+PYTH-USD,Pyth Network
 TIA-USD,Celestia
+PENDLE-USD,Pendle
+JUP-USD,Jupiter
+JTO-USD,Jito
+ONDO-USD,Ondo Finance
+ORDI-USD,ORDI
+ENA-USD,Ethena
+W-USD,Wormhole
+IO-USD,io.net
+DYM-USD,Dymension
+BEAM-USD,Beam
+ONE-USD,Harmony
+HOT-USD,Holo
+BAND-USD,Band Protocol
+VIRTUAL-USD,Virtuals Protocol
+FLOKI-USD,FLOKI
+PI-USD,Pi Network
+FLNC-USD,Fluence
