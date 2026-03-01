@@ -7,7 +7,6 @@ import os
 import numpy as np
 import time as py_time
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("confluence_bot")
@@ -35,8 +34,7 @@ AE_SLOW   = 34
 GAMBIT_SPAN  = 17
 GAMBIT_ALPHA = 3.5 / GAMBIT_SPAN  # ≈ 0.206 — faster reaction than standard span EWM
 
-THREAD_WORKERS = 15
-CACHE_TTL      = 3600  # seconds
+CACHE_TTL = 3600  # seconds
 
 # TradingView symbol overrides for tickers that need exchange prefixes
 TV_SYMBOL_MAP = {
@@ -112,29 +110,80 @@ def _tv_url(ticker):
     symbol = TV_SYMBOL_MAP.get(ticker, ticker)
     return f"https://www.tradingview.com/chart/?symbol={symbol}"
 
-def fetch_ticker(args):
-    ticker, name, spy_sub, now_cst = args
+def _batch_download(symbols, period="1y"):
+    """Download all symbols in ONE request; returns dict ticker -> OHLCV DataFrame."""
+    unique = list(dict.fromkeys(symbols))
     try:
-        df = yf.Ticker(ticker).history(period="1y")
+        raw = yf.download(
+            unique, period=period,
+            group_by="ticker", auto_adjust=True,
+            progress=False, threads=True,
+        )
+    except Exception as e:
+        logger.error("Batch download failed: %s", e)
+        return {}
 
-        if df is None or df.empty or len(df) < AE_SLOW:
-            logger.debug("Skipping %s: insufficient data (%d rows)", ticker, 0 if df is None or df.empty else len(df))
-            return None
+    if raw is None or raw.empty:
+        logger.error("Batch download returned empty result for %s tickers", len(unique))
+        return {}
+
+    result = {}
+    for sym in unique:
+        try:
+            if len(unique) == 1:
+                # single-ticker download: flat DataFrame, no MultiIndex
+                df = raw
+            else:
+                df = raw[sym]
+            # drop rows where all OHLCV values are NaN
+            df = df.dropna(how="all")
+            if not df.empty:
+                result[sym] = df
+        except (KeyError, TypeError) as e:
+            logger.debug("No data for %s: %s", sym, e)
+    return result
+
+@st.cache_data(ttl=CACHE_TTL)
+def scan(t_map, bench):
+    tz_cst  = pytz.timezone('US/Central')
+    now_cst = datetime.now(tz_cst)
+
+    all_syms = list(dict.fromkeys([bench] + list(t_map.keys())))
+    dfs = _batch_download(all_syms)
+
+    bench_df = dfs.get(bench, pd.DataFrame())
+    if bench_df.empty or len(bench_df) < AE_SLOW:
+        logger.error("Benchmark %s unavailable or insufficient (%d rows)", bench, len(bench_df))
+        return pd.DataFrame(), "unavailable"
+
+    spy_sub = bench_df.iloc[:-1] if now_cst.time() < time(17, 0) else bench_df
+    confirmed_date = spy_sub.index[-1].strftime('%b %d, %Y')
+
+    results = []
+    for ticker, name in t_map.items():
+        df = dfs.get(ticker, pd.DataFrame())
+        if df.empty or len(df) < AE_SLOW:
+            logger.debug("Skipping %s: only %d rows", ticker, len(df))
+            continue
 
         if now_cst.time() < time(17, 0):
             df = df.iloc[:-1]
 
-        bull, bear = get_ae_signal(df)
-        buy,  sell = get_gambit_signal(df)
+        try:
+            bull, bear = get_ae_signal(df)
+            buy,  sell = get_gambit_signal(df)
+        except Exception as e:
+            logger.warning("Signal calc failed for %s: %s", ticker, e)
+            continue
 
         t_stat = "Neutral ⚪"
         g_stat = "—"
         c_stat = "⚪ Neutral"
 
-        if bull.iloc[-1]:  t_stat = "Bullish 🟢"
+        if bull.iloc[-1]:   t_stat = "Bullish 🟢"
         elif bear.iloc[-1]: t_stat = "Bearish 🔴"
 
-        if buy.iloc[-1]:   g_stat = "🟢 BUY (Reversal)"
+        if buy.iloc[-1]:    g_stat = "🟢 BUY (Reversal)"
         elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
 
         if bull.iloc[-1]:
@@ -151,7 +200,7 @@ def fetch_ticker(args):
             r_bull, r_bear = get_ae_signal_ratio(ratio)
             rs_stat = "Bullish 🟢" if r_bull.iloc[-1] else "Bearish 🔴" if r_bear.iloc[-1] else "Neutral ⚪"
 
-        return {
+        results.append({
             "Company":          name,
             "Ticker":           ticker.replace("-USD", ""),
             "Price":            f"${df['Close'].iloc[-1]:.2f}",
@@ -160,52 +209,15 @@ def fetch_ticker(args):
             "Gambit Reversals": g_stat,
             "Confluence":       c_stat,
             "Action":           _tv_url(ticker),
-        }
-    except Exception as e:
-        logger.warning("Error fetching %s: %s", ticker, e)
-        return None
-
-def _fetch_with_backoff(ticker, period="1y", retries=4):
-    """Fetch history with exponential backoff on rate-limit / network errors."""
-    delay = 2
-    for attempt in range(retries):
-        try:
-            df = yf.Ticker(ticker).history(period=period)
-            if df is not None and not df.empty:
-                return df
-        except Exception as e:
-            logger.warning("Attempt %d failed for %s: %s", attempt + 1, ticker, e)
-        if attempt < retries - 1:
-            py_time.sleep(delay)
-            delay *= 2
-    return pd.DataFrame()
-
-@st.cache_data(ttl=CACHE_TTL)
-def scan(t_map, bench):
-    tz_cst   = pytz.timezone('US/Central')
-    now_cst  = datetime.now(tz_cst)
-
-    spy_df = _fetch_with_backoff(bench)
-    if spy_df.empty:
-        logger.error("Failed to fetch benchmark %s", bench)
-        return pd.DataFrame(), "unavailable"
-
-    spy_sub = spy_df.iloc[:-1] if now_cst.time() < time(17, 0) else spy_df
-
-    tasks = [(t, n, spy_sub, now_cst) for t, n in t_map.items()]
-    with ThreadPoolExecutor(max_workers=THREAD_WORKERS) as exe:
-        results = [r for r in exe.map(fetch_ticker, tasks) if r]
+        })
 
     if not results:
-        return pd.DataFrame(), spy_sub.index[-1].strftime('%b %d, %Y')
+        return pd.DataFrame(), confirmed_date
 
-    df = pd.DataFrame(results)
-    df.columns = df.columns.str.strip()
-    df['Confluence'] = pd.Categorical(df['Confluence'], categories=CONFLUENCE_ORDER, ordered=True)
-    df = df.sort_values('Confluence')
-
-    confirmed_date = spy_sub.index[-1].strftime('%b %d, %Y')
-    return df, confirmed_date
+    out = pd.DataFrame(results)
+    out['Confluence'] = pd.Categorical(out['Confluence'], categories=CONFLUENCE_ORDER, ordered=True)
+    out = out.sort_values('Confluence')
+    return out, confirmed_date
 
 # --- 6. UI ---
 col1, col2 = st.columns([3, 1])
