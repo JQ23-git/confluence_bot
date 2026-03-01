@@ -264,12 +264,12 @@ def scan(t_map, bench, max_workers=4, interval="1d", is_crypto=False):
             logger.warning("Signal calc failed for %s: %s", ticker, e)
             continue
 
-        t_stat = "Neutral ⚪"
+        t_stat = "⚪ Neutral"
         g_stat = "—"
         c_stat = "⚪ Neutral"
 
-        if bull.iloc[-1]:   t_stat = "Bullish 🟢"
-        elif bear.iloc[-1]: t_stat = "Bearish 🔴"
+        if bull.iloc[-1]:   t_stat = "🟢 Bullish"
+        elif bear.iloc[-1]: t_stat = "🔴 Bearish"
 
         if buy.iloc[-1]:    g_stat = "🟢 BUY (Reversal)"
         elif sell.iloc[-1]: g_stat = "🔴 SELL (Pivot)"
@@ -298,11 +298,11 @@ def scan(t_map, bench, max_workers=4, interval="1d", is_crypto=False):
             ratio = df.loc[common, 'Close'] / spy_sub.loc[common, 'Close']
             r_bull, r_bear = get_ae_signal_ratio(ratio)
             if r_bull.iloc[-1]:
-                rs_stat, rs_score = "Bullish 🟢", 1
+                rs_stat, rs_score = "🟢 Bullish", 1
             elif r_bear.iloc[-1]:
-                rs_stat, rs_score = "Bearish 🔴", -1
+                rs_stat, rs_score = "🔴 Bearish", -1
             else:
-                rs_stat = "Neutral ⚪"
+                rs_stat = "⚪ Neutral"
 
         score = ae_score + g_score + rs_score
         score_fmt = f"+{score}" if score > 0 else str(score)
