@@ -110,68 +110,35 @@ def _tv_url(ticker):
     symbol = TV_SYMBOL_MAP.get(ticker, ticker)
     return f"https://www.tradingview.com/chart/?symbol={symbol}"
 
-def _get_sym_df(raw, sym, n_syms):
-    """Extract flat OHLCV DataFrame for sym from a yf.download() result.
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    Handles all yfinance column layouts:
-    - Flat columns (old yfinance or single-ticker with multi_level_index=False)
-    - MultiIndex (ticker, price) from group_by='ticker'
-    - MultiIndex (price, ticker) from group_by='column' (yfinance default)
-    - Single-ticker MultiIndex introduced in yfinance 1.x
-    """
-    try:
-        if not isinstance(raw.columns, pd.MultiIndex):
-            # Already flat — single-ticker old-style download
-            return raw.dropna(how='all')
+APP_VERSION = "v5.1"   # visible in UI — confirms this code is deployed
 
-        lvl0 = raw.columns.get_level_values(0).unique().tolist()
-        lvl1 = raw.columns.get_level_values(1).unique().tolist()
-
-        # group_by='ticker' layout: (Ticker, Price) — sym in level 0
-        if sym in lvl0:
-            df = raw[sym]
-            # raw[sym] may itself still be MultiIndex in some edge cases
-            if isinstance(df.columns, pd.MultiIndex):
-                df = df.droplevel(0, axis=1)
-            return df.dropna(how='all')
-
-        # group_by='column' layout: (Price, Ticker) — sym in level 1
-        if sym in lvl1:
-            return raw.xs(sym, level=1, axis=1).dropna(how='all')
-
-    except Exception as e:
-        logger.debug("Extraction failed for %s: %s", sym, e)
-    return pd.DataFrame()
-
-
-def _batch_download(symbols, period="1y", batch_size=50):
-    """Download symbols in batches of batch_size; returns dict ticker -> OHLCV DataFrame."""
-    unique = list(dict.fromkeys(symbols))
-    result = {}
-
-    for i in range(0, len(unique), batch_size):
-        batch = unique[i:i + batch_size]
+def _fetch_one(sym, period="1y", retries=3):
+    """Fetch OHLCV for a single ticker via Ticker.history(); retry on failure."""
+    delay = 1
+    for attempt in range(retries):
         try:
-            raw = yf.download(
-                batch, period=period,
-                group_by="ticker",
-                auto_adjust=True,
-                progress=False,
-            )
-            if raw is None or raw.empty:
-                logger.warning("Batch %d–%d returned empty", i, i + len(batch))
-            else:
-                for sym in batch:
-                    df = _get_sym_df(raw, sym, len(batch))
-                    if not df.empty:
-                        result[sym] = df
+            df = yf.Ticker(sym).history(period=period)
+            if df is not None and not df.empty:
+                return sym, df
         except Exception as e:
-            logger.warning("Batch %d–%d failed: %s", i, i + len(batch), e)
+            logger.debug("Attempt %d for %s failed: %s", attempt + 1, sym, e)
+        if attempt < retries - 1:
+            py_time.sleep(delay)
+            delay *= 2
+    return sym, pd.DataFrame()
 
-        if i + batch_size < len(unique):
-            py_time.sleep(0.5)   # brief pause to avoid rate-limit between batches
-
-    logger.info("_batch_download: got %d / %d symbols", len(result), len(unique))
+def _fetch_all(symbols, period="1y", max_workers=4):
+    """Fetch all symbols with a small thread pool to avoid rate-limiting."""
+    result = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        futures = {exe.submit(_fetch_one, sym, period): sym for sym in symbols}
+        for fut in as_completed(futures):
+            sym, df = fut.result()
+            if not df.empty:
+                result[sym] = df
+    logger.info("_fetch_all: got %d / %d symbols", len(result), len(symbols))
     return result
 
 @st.cache_data(ttl=CACHE_TTL)
@@ -180,7 +147,7 @@ def scan(t_map, bench):
     now_cst = datetime.now(tz_cst)
 
     all_syms = list(dict.fromkeys([bench] + list(t_map.keys())))
-    dfs = _batch_download(all_syms)
+    dfs = _fetch_all(all_syms)
 
     bench_df = dfs.get(bench, pd.DataFrame())
     if bench_df.empty or len(bench_df) < AE_SLOW:
@@ -258,6 +225,7 @@ with col1:
     else:
         st.title("confluence.bot")
 with col2:
+    st.caption(APP_VERSION)
     if st.button("Refresh"):
         st.cache_data.clear()
         st.rerun()
