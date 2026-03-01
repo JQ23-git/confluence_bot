@@ -165,14 +165,14 @@ def _tv_url(ticker):
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-APP_VERSION = "v5.2"
+APP_VERSION = "v5.3"
 
-def _fetch_one(sym, period="1y", retries=3):
+def _fetch_one(sym, period="1y", interval="1d", retries=3):
     """Fetch OHLCV for a single ticker via Ticker.history(); retry on failure."""
     delay = 1
     for attempt in range(retries):
         try:
-            df = yf.Ticker(sym).history(period=period)
+            df = yf.Ticker(sym).history(period=period, interval=interval)
             if df is not None and not df.empty:
                 return sym, df
         except Exception as e:
@@ -182,11 +182,11 @@ def _fetch_one(sym, period="1y", retries=3):
             delay *= 2
     return sym, pd.DataFrame()
 
-def _fetch_all(symbols, period="1y", max_workers=4):
+def _fetch_all(symbols, period="1y", interval="1d", max_workers=4):
     """Fetch all symbols with a thread pool to avoid rate-limiting."""
     result = {}
     with ThreadPoolExecutor(max_workers=max_workers) as exe:
-        futures = {exe.submit(_fetch_one, sym, period): sym for sym in symbols}
+        futures = {exe.submit(_fetch_one, sym, period, interval): sym for sym in symbols}
         for fut in as_completed(futures):
             sym, df = fut.result()
             if not df.empty:
@@ -194,21 +194,57 @@ def _fetch_all(symbols, period="1y", max_workers=4):
     logger.info("_fetch_all: got %d / %d symbols", len(result), len(symbols))
     return result
 
+def _flip_date(signal_bool, index):
+    """Return the date when the current True streak began."""
+    vals = signal_bool.values
+    i = len(vals) - 1
+    while i > 0 and vals[i - 1]:
+        i -= 1
+    return pd.Timestamp(index[i]).strftime('%b %d')
+
 @st.cache_data(ttl=CACHE_TTL)
-def scan(t_map, bench, max_workers=4):
+def scan(t_map, bench, max_workers=4, interval="1d", is_crypto=False):
     tz_cst  = pytz.timezone('US/Central')
     now_cst = datetime.now(tz_cst)
+    period  = "2y" if interval == "1wk" else "1y"
 
     all_syms = list(dict.fromkeys([bench] + list(t_map.keys())))
-    dfs = _fetch_all(all_syms, max_workers=max_workers)
+    dfs = _fetch_all(all_syms, period=period, interval=interval, max_workers=max_workers)
 
     bench_df = dfs.get(bench, pd.DataFrame())
     if bench_df.empty or len(bench_df) < AE_SLOW:
         logger.error("Benchmark %s unavailable or insufficient (%d rows)", bench, len(bench_df))
         return pd.DataFrame(), "unavailable"
 
-    spy_sub = bench_df.iloc[:-1] if now_cst.time() < time(17, 0) else bench_df
-    confirmed_date = spy_sub.index[-1].strftime('%b %d, %Y')
+    def _strip(df):
+        """Remove the last candle if it hasn't closed yet."""
+        if is_crypto:
+            # Crypto daily candle closes at UTC midnight — strip if last bar is today (UTC)
+            last_date = df.index[-1]
+            if hasattr(last_date, 'date'):
+                last_date = last_date.date()
+            if last_date >= datetime.utcnow().date():
+                return df.iloc[:-1]
+            return df
+        elif interval == "1wk":
+            # Weekly bar is incomplete Mon–Fri; confirmed on weekends
+            if now_cst.weekday() < 5:
+                return df.iloc[:-1]
+            return df
+        else:
+            # Daily stocks: confirmed after 5 pm CST on weekdays
+            if now_cst.weekday() < 5 and now_cst.time() < time(17, 0):
+                return df.iloc[:-1]
+            return df
+
+    spy_sub = _strip(bench_df)
+    if spy_sub.empty:
+        return pd.DataFrame(), "unavailable"
+
+    if interval == "1wk":
+        confirmed_date = "Week of " + spy_sub.index[-1].strftime('%b %d, %Y')
+    else:
+        confirmed_date = spy_sub.index[-1].strftime('%b %d, %Y')
 
     results = []
     for ticker, name in t_map.items():
@@ -217,8 +253,9 @@ def scan(t_map, bench, max_workers=4):
             logger.debug("Skipping %s: only %d rows", ticker, len(df))
             continue
 
-        if now_cst.time() < time(17, 0):
-            df = df.iloc[:-1]
+        df = _strip(df)
+        if df.empty or len(df) < AE_SLOW:
+            continue
 
         try:
             bull, bear = get_ae_signal(df)
@@ -247,6 +284,13 @@ def scan(t_map, bench, max_workers=4):
         ae_score = 1 if bull.iloc[-1] else (-1 if bear.iloc[-1] else 0)
         g_score  = 1 if buy.iloc[-1]  else (-1 if sell.iloc[-1]  else 0)
 
+        if bull.iloc[-1]:
+            since = _flip_date(bull, df.index)
+        elif bear.iloc[-1]:
+            since = _flip_date(bear, df.index)
+        else:
+            since = "—"
+
         rs_stat  = "—"
         rs_score = 0
         common = df.index.intersection(spy_sub.index)
@@ -270,6 +314,7 @@ def scan(t_map, bench, max_workers=4):
             "Score":            score_fmt,
             "_score":           score,
             "Trend (vs USD)":   t_stat,
+            "Since":            since,
             "BenchTrend":       rs_stat,
             "Gambit Reversals": g_stat,
             "Confluence":       c_stat,
@@ -332,8 +377,8 @@ t_stocks, t_coins, t_comm, t_hist = st.tabs(["STOCKS 📈", "COINS ₿", "COMMOD
 # --- 9. STOCKS TAB ---
 with t_stocks:
     try:
-        df_s, d_s = scan(STOCK_MAP, "SPY")
-        st.caption(f"📅 Confirmed Close: {d_s}")
+        df_s, d_s = scan(STOCK_MAP, "SPY", interval="1wk")
+        st.caption(f"📅 Weekly Close: {d_s}")
         if not df_s.empty and "stocks_logged" not in st.session_state:
             log_signals(df_s, "stocks")
             st.session_state["stocks_logged"] = True
@@ -358,7 +403,7 @@ with t_stocks:
 # --- 10. COINS TAB ---
 with t_coins:
     try:
-        df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", max_workers=COIN_WORKERS)
+        df_c, d_c = scan(CRYPTO_MAP, "BTC-USD", max_workers=COIN_WORKERS, is_crypto=True)
         st.caption(f"📅 Daily Close: {d_c} | Coins Found: {len(df_c)}")
         if not df_c.empty and "coins_logged" not in st.session_state:
             log_signals(df_c, "coins")
@@ -375,8 +420,8 @@ with t_coins:
 # --- 11. COMMODITIES TAB ---
 with t_comm:
     try:
-        df_m, d_m = scan(COMMODITY_MAP, "SPY")
-        st.caption(f"📅 Daily Close: {d_m} | Commodities Found: {len(df_m)}")
+        df_m, d_m = scan(COMMODITY_MAP, "SPY", interval="1wk")
+        st.caption(f"📅 Weekly Close: {d_m} | Commodities Found: {len(df_m)}")
         if not df_m.empty and "comm_logged" not in st.session_state:
             log_signals(df_m, "commodities")
             st.session_state["comm_logged"] = True
