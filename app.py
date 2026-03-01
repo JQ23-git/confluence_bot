@@ -291,16 +291,19 @@ def scan(t_map, bench, max_workers=4, interval="1d", is_crypto=False):
         else:
             since = "—"
 
-        rs_stat  = "—"
-        rs_score = 0
+        rs_stat   = "—"
+        rs_score  = 0
+        bench_since = "—"
         common = df.index.intersection(spy_sub.index)
         if len(common) > AE_SLOW:
             ratio = df.loc[common, 'Close'] / spy_sub.loc[common, 'Close']
             r_bull, r_bear = get_ae_signal_ratio(ratio)
             if r_bull.iloc[-1]:
                 rs_stat, rs_score = "🟢 Bullish", 1
+                bench_since = _flip_date(r_bull, r_bull.index)
             elif r_bear.iloc[-1]:
                 rs_stat, rs_score = "🔴 Bearish", -1
+                bench_since = _flip_date(r_bear, r_bear.index)
             else:
                 rs_stat = "⚪ Neutral"
 
@@ -316,6 +319,7 @@ def scan(t_map, bench, max_workers=4, interval="1d", is_crypto=False):
             "Trend (vs USD)":   t_stat,
             "Since":            since,
             "BenchTrend":       rs_stat,
+            "BenchSince":       bench_since,
             "Gambit Reversals": g_stat,
             "Confluence":       c_stat,
             "Action":           _tv_url(ticker),
@@ -352,7 +356,11 @@ def draw(df, b_name, filter_val="All"):
         if "STRONG SELL" in val: return [f'background-color: {sell_c}'] * len(row)
         return [''] * len(row)
 
-    display_df = disp.drop(columns=['_score'], errors='ignore').rename(columns={"BenchTrend": b_name})
+    bench_since_label = b_name.replace("Trend (", "Since (")
+    display_df = disp.drop(columns=['_score'], errors='ignore').rename(columns={
+        "BenchTrend":  b_name,
+        "BenchSince":  bench_since_label,
+    })
     st.dataframe(
         display_df.style.apply(highlight, axis=1),
         column_config={"Action": st.column_config.LinkColumn("Chart")},
